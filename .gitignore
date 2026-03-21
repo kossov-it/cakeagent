@@ -1,0 +1,8 @@
+node_modules/
+dist/
+data/
+credentials/
+.env
+*.tsbuildinfo
+groups/*/conversations/
+.DS_Store

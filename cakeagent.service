@@ -1,0 +1,34 @@
+[Unit]
+Description=CakeAgent — Personal AI Assistant
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cakeagent
+Group=cakeagent
+WorkingDirectory=/opt/cakeagent
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=10
+
+# Environment
+EnvironmentFile=/opt/cakeagent/.env
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/cakeagent
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cakeagent
+
+[Install]
+WantedBy=multi-user.target
