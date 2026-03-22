@@ -144,6 +144,11 @@ async function selfUpdate(chatId: string): Promise<void> {
     }
 
     await runCmd('npm', ['run', 'build']);
+
+    // Clear all sessions — old context is stale after code update
+    for (const g of store.getGroups()) store.setSession(g.folder, '');
+    store.setSession('main', '');
+
     await telegram.send(chatId, 'Updated. Restarting...');
     abortController.abort();
     setTimeout(() => process.exit(0), 200);
