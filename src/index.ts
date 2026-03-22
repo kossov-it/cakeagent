@@ -170,21 +170,12 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId, 'Session reset.');
       return true;
     }
-    case 'update':
+    case 'update': {
       await telegram.send(chatId, 'Updating...');
-      try {
-        const { execFileSync } = await import('node:child_process');
-        execFileSync('git', ['pull'], { cwd: '/opt/cakeagent', timeout: 60_000 });
-        execFileSync('npm', ['run', 'build'], { cwd: '/opt/cakeagent', timeout: 120_000 });
-        execFileSync('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update-service'], { timeout: 30_000 });
-        await telegram.send(chatId, 'Updated. Restarting...');
-      } catch (err) {
-        await telegram.send(chatId, `Update failed: ${(err as Error).message.slice(0, 200)}`);
-        return true;
-      }
-      abortController.abort();
-      setTimeout(() => process.exit(0), 500);
+      const { execFile } = await import('node:child_process');
+      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, () => {});
       return true;
+    }
     case 'restart':
       await telegram.send(chatId, 'Restarting...');
       abortController.abort();
