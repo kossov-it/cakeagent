@@ -10,6 +10,17 @@ INSTALL_DIR="/opt/cakeagent"
 SERVICE_USER="cakeagent"
 SERVICE_NAME="cakeagent"
 
+# --- Update ---
+if [ "${1:-}" = "update" ]; then
+  echo "🍰 Updating CakeAgent..."
+  cd "$INSTALL_DIR"
+  sudo -u "$SERVICE_USER" git pull
+  sudo -u "$SERVICE_USER" npm run build
+  sudo systemctl restart "$SERVICE_NAME"
+  echo "✅ Updated and restarted."
+  exit 0
+fi
+
 # --- Uninstall ---
 if [ "${1:-}" = "uninstall" ]; then
   echo "🍰 CakeAgent — Uninstall"

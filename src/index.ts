@@ -71,6 +71,7 @@ function refreshBotCommands() {
     { command: 'status', description: 'Show bot status' },
     { command: 'settings', description: 'Open settings menu' },
     { command: 'reset', description: 'Reset conversation session' },
+    { command: 'update', description: 'Pull latest code and restart' },
     { command: 'restart', description: 'Restart the bot' },
     { command: 'help', description: 'Show available commands' },
   ];
@@ -138,6 +139,20 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId, 'Session reset.');
       return true;
     }
+    case 'update':
+      await telegram.send(chatId, 'Updating...');
+      try {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('git', ['pull'], { cwd: '/opt/cakeagent', timeout: 60_000 });
+        execFileSync('npm', ['run', 'build'], { cwd: '/opt/cakeagent', timeout: 120_000 });
+        await telegram.send(chatId, 'Updated. Restarting...');
+      } catch (err) {
+        await telegram.send(chatId, `Update failed: ${(err as Error).message.slice(0, 200)}`);
+        return true;
+      }
+      abortController.abort();
+      setTimeout(() => process.exit(0), 500);
+      return true;
     case 'restart':
       await telegram.send(chatId, 'Restarting...');
       abortController.abort();
@@ -145,7 +160,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       return true;
     case 'help':
       await telegram.send(chatId,
-        '/status — Bot status\n/settings — Settings menu\n/reset — Reset session\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
+        '/status — Bot status\n/settings — Settings menu\n/reset — Reset session\n/update — Pull latest code and restart\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
       );
       return true;
     default:
