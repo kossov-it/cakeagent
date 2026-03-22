@@ -102,45 +102,41 @@ const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
 
 async function handleSettingsCallback(data: string, settings: CakeSettings, chatId: string): Promise<CakeSettings> {
   const [key, val] = data.split(':');
-  if (key === 'model' && VALID_MODELS.has(val)) settings.model = val;
-  else if (key === 'thinking' && VALID_THINKING.has(val)) settings.thinkingLevel = val;
-  else if (key === 'voice') {
+
+  if (key === 'model' && VALID_MODELS.has(val)) {
+    settings.model = val;
+  } else if (key === 'thinking' && VALID_THINKING.has(val)) {
+    settings.thinkingLevel = val;
+  } else if (key === 'voice') {
     settings.voiceReceive = !settings.voiceReceive;
     if (settings.voiceReceive) {
-      await telegram.send(chatId, 'Setting up voice input (STT)...');
-      try {
-        const { execFileSync, execSync } = await import('node:child_process');
-        try { execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } }); } catch { /* check below */ }
-        const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
-        if (!hasFfmpeg) throw new Error('ffmpeg install failed');
-        const modelsDir = join(config.dataDir, 'models');
-        mkdirSync(modelsDir, { recursive: true });
-        if (!existsSync(join(modelsDir, 'ggml-base.bin'))) {
-          execFileSync('sudo', ['curl', '-L', '-o', join(modelsDir, 'ggml-base.bin'), 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'], { timeout: 300_000, stdio: 'pipe' });
-        }
-        await telegram.send(chatId, 'Voice input ready.');
-      } catch (err) {
-        await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 150)}`);
-        settings.voiceReceive = false;
-      }
+      await telegram.send(chatId, 'Installing voice input deps — bot will restart...');
+      store.saveSettings(settings);
+      const { execFile } = await import('node:child_process');
+      const modelsDir = join(config.dataDir, 'models');
+      execFile('sudo', ['bash', '-c',
+        `DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg; ` +
+        `mkdir -p ${modelsDir}; ` +
+        `test -f ${join(modelsDir, 'ggml-base.bin')} || curl -L -o ${join(modelsDir, 'ggml-base.bin')} https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin; ` +
+        `systemctl restart cakeagent`
+      ], { timeout: 300_000 }, () => {});
+      return settings;
     }
   } else if (key === 'voiceReply') {
     settings.voiceReply = !settings.voiceReply;
     if (settings.voiceReply) {
-      await telegram.send(chatId, 'Setting up voice output (TTS)...');
-      try {
-        const { execFileSync } = await import('node:child_process');
-        try { execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } }); } catch { /* check below */ }
-        const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
-        if (!hasFfmpeg) throw new Error('ffmpeg install failed');
-        execFileSync('npm', ['i', 'edge-tts'], { cwd: '/opt/cakeagent', timeout: 60_000, stdio: 'pipe' });
-        await telegram.send(chatId, 'Voice output ready.');
-      } catch (err) {
-        await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 150)}`);
-        settings.voiceReply = false;
-      }
+      await telegram.send(chatId, 'Installing voice output deps — bot will restart...');
+      store.saveSettings(settings);
+      const { execFile } = await import('node:child_process');
+      execFile('sudo', ['bash', '-c',
+        `DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg; ` +
+        `cd /opt/cakeagent && npm i edge-tts; ` +
+        `systemctl restart cakeagent`
+      ], { timeout: 300_000 }, () => {});
+      return settings;
     }
   }
+
   store.saveSettings(settings);
   return settings;
 }
