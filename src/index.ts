@@ -132,6 +132,26 @@ function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv; t
   });
 }
 
+async function selfUpdate(chatId: string): Promise<void> {
+  try {
+    const before = (await runCmd('git', ['rev-parse', 'HEAD'])).trim();
+    await runCmd('git', ['pull']);
+    const after = (await runCmd('git', ['rev-parse', 'HEAD'])).trim();
+
+    if (before === after) {
+      await telegram.send(chatId, 'Already up to date.');
+      return;
+    }
+
+    await runCmd('npm', ['run', 'build']);
+    await telegram.send(chatId, 'Updated. Restarting...');
+    abortController.abort();
+    setTimeout(() => process.exit(0), 200);
+  } catch (err) {
+    await telegram.send(chatId, `Update failed: ${(err as Error).message.slice(0, 200)}`).catch(() => {});
+  }
+}
+
 async function installVoiceDeps(chatId: string): Promise<void> {
   const apt = (pkgs: string[]) => runCmd('sudo', ['apt-get', 'install', '-y', ...pkgs], {
     env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
@@ -217,20 +237,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
     }
     case 'update': {
       await telegram.send(chatId, 'Updating...');
-      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, async (err, stdout, stderr) => {
-        if (err) {
-          await telegram.send(chatId, `Update failed: ${(stderr || err.message).slice(0, 200)}`).catch(() => {});
-          return;
-        }
-        const updated = stdout.includes('Updated and restarted') || stdout.includes('Updating');
-        if (updated || !stdout.includes('No changes')) {
-          await telegram.send(chatId, 'Updated. Restarting...').catch(() => {});
-          abortController.abort();
-          setTimeout(() => process.exit(0), 200);
-        } else {
-          await telegram.send(chatId, 'Already up to date.').catch(() => {});
-        }
-      });
+      selfUpdate(chatId);
       return true;
     }
     case 'restart':
