@@ -1,10 +1,26 @@
 # 🍰 CakeAgent
 
+[![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
+
 **A personal AI agent in 1,750 lines of code.**
 
 CakeAgent runs Claude as a full agent on your server — with tool use, web search, code execution, file access, scheduling, and voice — all through Telegram. It extends itself through the MCP ecosystem: thousands of ready-made integrations, discoverable and installable via chat.
 
-Single Node.js process. 3 dependencies. No containers. No web UI. No API keys for voice.
+Single Node.js process. 3 dependencies. Dedicated system user. Sandboxed by systemd. No API keys for voice.
+
+### Quick start
+
+```bash
+git clone https://github.com/kossov-it/cakeagent.git /tmp/cakeagent
+cd /tmp/cakeagent && sudo bash setup.sh
+```
+
+The script creates a `cakeagent` system user, installs everything to `/opt/cakeagent`, asks for your Telegram bot token and Claude auth, and starts the service. Send a message to your bot — it guides you through the rest.
+
+To uninstall (removes everything — user, service, data, no traces):
+```bash
+sudo bash /opt/cakeagent/setup.sh uninstall
+```
 
 ---
 
@@ -27,7 +43,7 @@ The core is a thin orchestrator (1,750 LOC) that connects Telegram to the Claude
 | **Network surface** | 0 listeners (outbound only) | WebSocket on 0.0.0.0, HTTP API |
 | **Telegram** | 220 LOC raw `fetch()` | grammY/Telegraf framework + adapter |
 | **Tool ecosystem** | MCP open standard — install via chat | Custom plugin marketplace (7% malicious) |
-| **Security** | Dedicated user, systemd sandbox, Bash hooks | Plaintext credentials, no auth by default |
+| **Security** | Dedicated system user, systemd sandbox, Bash hooks | Plaintext credentials, no auth by default |
 | **Startup** | Sub-second | 75–85% CPU, 3MB bundle, 1000+ imports |
 | **CVEs** | 0 | Multiple critical RCEs |
 
@@ -163,7 +179,7 @@ The agent queries the [official MCP Registry](https://registry.modelcontextproto
 | STT | **whisper.cpp** (local) | Free |
 | TTS | **Edge TTS** (Microsoft) | Free |
 
-No API keys. No cloud. Voice notes processed entirely on-device. Enable via `/settings` or chat.
+No API keys for voice. STT and TTS run entirely on your server. Enable via `/settings` or chat.
 
 ---
 
@@ -172,7 +188,7 @@ No API keys. No cloud. Voice notes processed entirely on-device. Enable via `/se
 | Layer | What it does |
 |-------|-------------|
 | **No network listeners** | Outbound only — Telegram long poll + MCP registry |
-| **Dedicated system user** | `cakeagent` user with restricted permissions |
+| **Dedicated system user** | `cakeagent` user with nologin shell, isolated from your account |
 | **Chat ID + sender allowlist** | Only configured chats and senders trigger the agent |
 | **`acceptEdits` permissions** | File ops allowed, Bash gated by validation hooks |
 | **PreToolUse Bash validator** | Blocks shell injection, reverse shells, pipe-to-sh |
