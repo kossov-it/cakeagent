@@ -242,7 +242,3 @@ sudo systemctl status cakeagent             # Service status
 CakeAgent is intentionally small. Before adding a feature, ask: can the agent do this via an MCP server instead? If yes, don't add it to the codebase.
 
 You can read the entire source in an hour. Please do before submitting a PR.
-
-## License
-
-[MIT](LICENSE)
