@@ -63,7 +63,7 @@ bash setup.sh
 The script walks you through:
 1. **Telegram bot token** — links you to [@BotFather](https://t.me/BotFather)
 2. **Your Telegram user ID** — links you to [@userinfobot](https://t.me/userinfobot)
-3. **Claude auth** — API key or subscription token (`claude setup-token`)
+3. **Claude auth** — subscription token via `claude setup-token` (recommended) or API key
 4. Installs, builds, and optionally sets up a **systemd service**
 
 After that, send a message to your bot. CakeAgent guides you through the rest — name, personality, voice, integrations — via Telegram chat.
@@ -73,7 +73,8 @@ After that, send a message to your bot. CakeAgent guides you through the rest �
 ```bash
 cp .env.example .env && chmod 600 .env
 nano .env                               # Bot token + chat ID
-claude setup-token                      # Or set ANTHROPIC_API_KEY in .env
+claude setup-token                      # Then paste token into .env as CLAUDE_CODE_OAUTH_TOKEN
+                                        # Or use ANTHROPIC_API_KEY for pay-per-use
 npm install && npm run build
 sudo cp cakeagent.service /etc/systemd/system/
 sudo systemctl enable --now cakeagent

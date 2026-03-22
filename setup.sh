@@ -98,36 +98,41 @@ fi
 echo ""
 echo "3️⃣  Claude authentication:"
 echo ""
-echo "   [1] API key (from console.anthropic.com/settings/keys)"
-echo "   [2] Subscription token (run: claude setup-token)"
+echo "   [1] Subscription token (recommended — uses your Claude Pro/Team plan)"
+echo "   [2] API key (pay-per-use via console.anthropic.com)"
 echo ""
 read -rp "   Choose [1/2]: " AUTH_CHOICE
 
 API_KEY=""
+OAUTH_TOKEN=""
 if [ "$AUTH_CHOICE" = "2" ]; then
   echo ""
-  echo "   Run 'claude setup-token' in a separate terminal now."
-  echo "   It will authenticate your Claude subscription."
-  echo "   Press Enter here once it's done."
-  read -r
-  if command -v claude &>/dev/null && claude auth status 2>&1 | grep -qi "logged in\|authenticated"; then
-    echo "   ✅ Authenticated via Claude subscription"
-  else
-    echo "   ⚠️  Could not verify auth. You can retry later: claude setup-token"
-  fi
-else
-  echo ""
   echo "   → Go to https://console.anthropic.com/settings/keys"
-  echo "   → Create a key (starts with sk-ant-)"
+  echo "   → Create a key (starts with sk-ant-api)"
   echo ""
-  read -rp "   Paste your key: " API_KEY
+  read -rp "   Paste your API key: " API_KEY
 
   if [ -z "$API_KEY" ]; then
     echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
-  elif [ "${API_KEY:0:7}" = "sk-ant-" ]; then
-    echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
   else
-    echo "   ⚠️  Key doesn't start with sk-ant- — double-check it's correct"
+    echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
+  fi
+else
+  echo ""
+  echo "   Run this in a separate terminal:"
+  echo ""
+  echo "     claude setup-token"
+  echo ""
+  echo "   It will display a token starting with sk-ant-oat..."
+  echo "   Copy that token and paste it below."
+  echo ""
+  read -rp "   Paste your subscription token: " OAUTH_TOKEN
+
+  if [ -z "$OAUTH_TOKEN" ]; then
+    echo "   ⚠️  No token provided. Run 'claude setup-token' later and add"
+    echo "      CLAUDE_CODE_OAUTH_TOKEN to .env before starting."
+  else
+    echo "   ✅ Token: ${OAUTH_TOKEN:0:10}$( printf '*%.0s' $(seq 1 $((${#OAUTH_TOKEN} - 14))) )${OAUTH_TOKEN: -4}"
   fi
 fi
 
@@ -136,7 +141,9 @@ TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
 TELEGRAM_CHAT_ID=${CHAT_ID}
 EOF
 
-if [ -n "$API_KEY" ]; then
+if [ -n "$OAUTH_TOKEN" ]; then
+  echo "CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_TOKEN}" >> .env
+elif [ -n "$API_KEY" ]; then
   echo "ANTHROPIC_API_KEY=${API_KEY}" >> .env
 fi
 
