@@ -1,12 +1,12 @@
 # 🍰 CakeAgent
 
 [![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
-![Lines](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/lines.json)
-![Files](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/files.json)
-![Deps](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/deps.json)
-![Size](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/size.json)
+![Lines](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/lines.json)
+![Files](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/files.json)
+![Deps](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/deps.json)
+![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 
-A personal AI agent you can actually read. 1,750 lines, 9 files, 3 runtime dependencies.
+A personal AI agent you can actually read. Under 2,000 lines of code, 9 files, 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from MCP — an open standard with thousands of existing tool servers — not from custom plugin code. Ask "add Google Calendar" in chat and it installs itself.
 
@@ -31,11 +31,11 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with [critical RCE vulnerabilities](https://www.proarch.com/blog/threats-vulnerabilities/openclaw-rce-vulnerability-cve-2026-25253) and [135,000 exposed instances](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/). Their plugin ecosystems? 7% of published skills leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orchestrator is 1,750 lines. Integrations come from the MCP ecosystem — thousands of tool servers maintained by their own communities. No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orchestrator is under 2,000 lines. Integrations come from the MCP ecosystem — thousands of tool servers maintained by their own communities. No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | 1,750 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | <2,000 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 220 LOC raw `fetch()` | Framework + adapter |

@@ -130,7 +130,11 @@ echo ""
 echo "5️⃣  Configuring agent permissions..."
 
 SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
-echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/bash $INSTALL_DIR/setup.sh *" | sudo tee "$SUDOERS_FILE" > /dev/null
+cat <<SUDOERS | sudo tee "$SUDOERS_FILE" > /dev/null
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/curl
+Defaults:$SERVICE_USER !requiretty
+SUDOERS
 sudo chmod 440 "$SUDOERS_FILE"
 echo "   ✅ Agent can install system packages"
 

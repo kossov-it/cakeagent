@@ -11,7 +11,7 @@ jobs:
       - run: npm install
       - run: npx tsc --noEmit
 
-  badges:
+  update-badges:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: build
@@ -19,21 +19,22 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-      - name: Generate badge data
+      - name: Count and update badges
         run: |
           LINES=$(cat src/*.ts channels/*.ts | wc -l | tr -d ' ')
           FILES=$(find src channels -name '*.ts' | wc -l | tr -d ' ')
           SIZE=$(cat src/*.ts channels/*.ts | wc -c | awk '{printf "%.0f", $1/1024}')
           DEPS=$(node -e "console.log(Object.keys(require('./package.json').dependencies).length)")
+
           mkdir -p .badges
           echo "{\"schemaVersion\":1,\"label\":\"source\",\"message\":\"${LINES} lines\",\"color\":\"blue\"}" > .badges/lines.json
           echo "{\"schemaVersion\":1,\"label\":\"files\",\"message\":\"${FILES}\",\"color\":\"blue\"}" > .badges/files.json
           echo "{\"schemaVersion\":1,\"label\":\"deps\",\"message\":\"${DEPS}\",\"color\":\"green\"}" > .badges/deps.json
           echo "{\"schemaVersion\":1,\"label\":\"size\",\"message\":\"${SIZE}KB\",\"color\":\"blue\"}" > .badges/size.json
-      - name: Deploy badges to gh-pages
-        uses: peaceiris/actions-gh-pages@v4
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: .badges
-          destination_dir: badges
-          keep_files: true
+      - name: Commit badge data
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add .badges/
+          git diff --staged --quiet || git commit -m "Update badge data [skip ci]"
+          git push
