@@ -38,6 +38,10 @@ if [ "${1:-}" = "uninstall" ]; then
   fi
 
   rm -rf data/ node_modules/ dist/ .env .mcp.json
+  if [ -f /etc/sudoers.d/cakeagent ]; then
+    sudo rm /etc/sudoers.d/cakeagent
+    echo "   ✅ Sudoers entry removed"
+  fi
   echo "   ✅ Data, deps, and config removed"
 
   echo ""
@@ -160,20 +164,26 @@ echo "   ✅ Built successfully"
 mkdir -p data groups/main
 
 echo ""
-echo "5️⃣  Voice dependencies (optional)..."
-if command -v ffmpeg &>/dev/null; then
-  echo "   ✅ ffmpeg found"
+echo "5️⃣  System dependencies..."
+sudo apt-get install -y ffmpeg 2>/dev/null || sudo dnf install -y ffmpeg 2>/dev/null || echo "   ⚠️  Could not install ffmpeg"
+command -v ffmpeg &>/dev/null && echo "   ✅ ffmpeg" || echo "   ⚠️  ffmpeg missing"
+echo "   ✅ edge-tts"
+
+echo ""
+echo "6️⃣  Agent permissions..."
+CURRENT_USER=$(whoami)
+SUDOERS_FILE="/etc/sudoers.d/cakeagent"
+if [ ! -f "$SUDOERS_FILE" ]; then
+  echo "   The bot needs passwordless sudo for apt to install packages on its own."
+  echo "$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt" | sudo tee "$SUDOERS_FILE" > /dev/null
+  sudo chmod 440 "$SUDOERS_FILE"
+  echo "   ✅ Passwordless apt configured for $CURRENT_USER"
 else
-  echo "   ffmpeg is needed for voice messages."
-  read -rp "   Install ffmpeg? [Y/n]: " INSTALL_FFMPEG
-  INSTALL_FFMPEG_LOWER=$(echo "$INSTALL_FFMPEG" | tr '[:upper:]' '[:lower:]')
-  if [ "$INSTALL_FFMPEG_LOWER" != "n" ]; then
-    sudo apt-get install -y ffmpeg 2>/dev/null || sudo dnf install -y ffmpeg 2>/dev/null || echo "   ⚠️  Could not install ffmpeg. Install manually."
-  fi
+  echo "   ✅ Passwordless apt already configured"
 fi
 
 echo ""
-echo "6️⃣  Install as systemd service?"
+echo "7️⃣  Install as systemd service?"
 read -rp "   Install service? [Y/n]: " INSTALL_SERVICE
 INSTALL_SERVICE_LOWER=$(echo "$INSTALL_SERVICE" | tr '[:upper:]' '[:lower:]')
 
