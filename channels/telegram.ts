@@ -44,8 +44,17 @@ function chunkText(text: string, maxLen = 4096): string[] {
   return chunks;
 }
 
-function escapeMarkdownV2(text: string): string {
-  return text.replace(/([_*\[\]()~`>#+\-=|{}.!\\])/g, '\\$1');
+function markdownToHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
+    .replace(/\*(.+?)\*/g, '<i>$1</i>')
+    .replace(/__(.+?)__/g, '<u>$1</u>')
+    .replace(/~~(.+?)~~/g, '<s>$1</s>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre>$1</pre>');
 }
 
 function buildSettingsKeyboard(settings: CakeSettings): any {
@@ -143,10 +152,15 @@ export function createTelegramChannel(
 
     async send(chatId: string, text: string): Promise<void> {
       for (const chunk of chunkText(text)) {
+        const html = markdownToHtml(chunk);
         await tg(token, 'sendMessage', {
           chat_id: chatId,
-          text: chunk,
-        }).catch(err => console.error('[telegram] Send failed:', err.message));
+          text: html,
+          parse_mode: 'HTML',
+        }).catch(() =>
+          tg(token, 'sendMessage', { chat_id: chatId, text: chunk })
+            .catch(err => console.error('[telegram] Send failed:', err.message))
+        );
       }
     },
 
@@ -176,25 +190,21 @@ export function createTelegramChannel(
     },
 
     async sendSettingsKeyboard(chatId: string, settings: CakeSettings): Promise<number> {
-      const model = escapeMarkdownV2(settings.model);
-      const thinking = escapeMarkdownV2(settings.thinkingLevel);
       const result = await tg(token, 'sendMessage', {
         chat_id: chatId,
-        text: `⚙️ *Settings*\nModel: \`${model}\`\nThinking: \`${thinking}\``,
-        parse_mode: 'MarkdownV2',
+        text: `⚙️ <b>Settings</b>\nModel: <code>${settings.model}</code>\nThinking: <code>${settings.thinkingLevel}</code>`,
+        parse_mode: 'HTML',
         reply_markup: buildSettingsKeyboard(settings),
       });
       return result.message_id;
     },
 
     async updateSettingsKeyboard(chatId: string, messageId: number, settings: CakeSettings): Promise<void> {
-      const model = escapeMarkdownV2(settings.model);
-      const thinking = escapeMarkdownV2(settings.thinkingLevel);
       await tg(token, 'editMessageText', {
         chat_id: chatId,
         message_id: messageId,
-        text: `⚙️ *Settings*\nModel: \`${model}\`\nThinking: \`${thinking}\``,
-        parse_mode: 'MarkdownV2',
+        text: `⚙️ <b>Settings</b>\nModel: <code>${settings.model}</code>\nThinking: <code>${settings.thinkingLevel}</code>`,
+        parse_mode: 'HTML',
         reply_markup: buildSettingsKeyboard(settings),
       }).catch(() => {});
     },
