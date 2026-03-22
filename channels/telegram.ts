@@ -74,9 +74,9 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
   return {
     inline_keyboard: [
       [
+        btn(mark(isModel('haiku'), 'Haiku'), 'model:claude-haiku-4-5-20251001'),
         btn(mark(isModel('sonnet'), 'Sonnet'), 'model:claude-sonnet-4-6'),
         btn(mark(isModel('opus'), 'Opus'), 'model:claude-opus-4-6'),
-        btn(mark(isModel('haiku'), 'Haiku'), 'model:claude-haiku-4-5-20251001'),
       ],
       [
         btn(mark(isThink('off'), 'Think: Off'), 'thinking:off'),
@@ -85,8 +85,7 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
         btn(mark(isThink('high'), 'High'), 'thinking:high'),
       ],
       [
-        btn(mark(settings.voiceReceive, 'Voice In'), 'voice:toggle'),
-        btn(mark(settings.voiceReply, 'Voice Reply'), 'voiceReply:toggle'),
+        btn(mark(settings.voiceReceive && settings.voiceReply, 'Voice'), 'voice:toggle'),
       ],
     ],
   };

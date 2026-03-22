@@ -110,17 +110,12 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   } else if (key === 'thinking' && VALID_THINKING.has(val)) {
     settings.thinkingLevel = val;
   } else if (key === 'voice') {
-    settings.voiceReceive = !settings.voiceReceive;
-    if (settings.voiceReceive) {
-      await telegram.send(chatId, 'Installing voice input deps — this may take a minute...');
-      installVoiceDeps(chatId, 'stt', 'voiceReceive');
-      return settings;
-    }
-  } else if (key === 'voiceReply') {
-    settings.voiceReply = !settings.voiceReply;
-    if (settings.voiceReply) {
-      await telegram.send(chatId, 'Setting up voice output...');
-      installVoiceDeps(chatId, 'tts', 'voiceReply');
+    const voiceOn = !(settings.voiceReceive && settings.voiceReply);
+    settings.voiceReceive = voiceOn;
+    settings.voiceReply = voiceOn;
+    if (voiceOn) {
+      await telegram.send(chatId, 'Setting up voice — this may take a few minutes on first run...');
+      installVoiceDeps(chatId);
       return settings;
     }
   }
@@ -139,55 +134,58 @@ function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv; t
   });
 }
 
-async function installVoiceDeps(chatId: string, type: 'stt' | 'tts', settingKey: string): Promise<void> {
+async function installVoiceDeps(chatId: string): Promise<void> {
   const apt = (pkgs: string[]) => runCmd('sudo', ['apt-get', 'install', '-y', ...pkgs], {
     env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
   });
 
   try {
-    if (type === 'stt') {
-      await runCmd('sudo', ['dpkg', '--configure', '-a']);
-      await runCmd('sudo', ['apt-get', 'install', '-f', '-y'], {
-        env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
-      });
-      await apt(['ffmpeg', 'cmake', 'g++', 'git']);
+    await runCmd('sudo', ['dpkg', '--configure', '-a']);
+    await runCmd('sudo', ['apt-get', 'install', '-f', '-y'], {
+      env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+    });
+    await apt(['ffmpeg', 'cmake', 'g++', 'git']);
 
-      const modelsDir = join(config.dataDir, 'models');
-      mkdirSync(modelsDir, { recursive: true });
-      const modelPath = join(modelsDir, 'ggml-base.bin');
-      if (!existsSync(modelPath)) {
-        await telegram.send(chatId, 'Downloading whisper model...');
-        await runCmd('curl', ['-L', '-o', modelPath,
-          'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin']);
-      }
-
-      const whisperDir = resolve('whisper.cpp');
-      const whisperBin = join(whisperDir, 'build', 'bin', 'whisper-cli');
-      if (!existsSync(whisperBin)) {
-        if (!existsSync(join(whisperDir, 'CMakeLists.txt'))) {
-          await telegram.send(chatId, 'Cloning whisper.cpp...');
-          await runCmd('git', ['clone', '--depth', '1', 'https://github.com/ggerganov/whisper.cpp.git', whisperDir]);
-        }
-        const buildDir = join(whisperDir, 'build');
-        mkdirSync(buildDir, { recursive: true });
-        await telegram.send(chatId, 'Building whisper-cli (this may take a few minutes)...');
-        await runCmd('cmake', ['-S', whisperDir, '-B', buildDir], { timeout: 120_000 });
-        await runCmd('cmake', ['--build', buildDir, '--config', 'Release', '-j4'], { timeout: 600_000 });
-      }
-    } else {
-      await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
+    // STT: whisper model
+    const modelsDir = join(config.dataDir, 'models');
+    mkdirSync(modelsDir, { recursive: true });
+    const modelPath = join(modelsDir, 'ggml-base.bin');
+    if (!existsSync(modelPath)) {
+      await telegram.send(chatId, 'Downloading whisper model...');
+      await runCmd('curl', ['-L', '-o', modelPath,
+        'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin']);
     }
 
+    // STT: whisper-cli
+    const whisperDir = resolve('whisper.cpp');
+    const whisperBin = join(whisperDir, 'build', 'bin', 'whisper-cli');
+    if (!existsSync(whisperBin)) {
+      if (!existsSync(join(whisperDir, 'CMakeLists.txt'))) {
+        await telegram.send(chatId, 'Cloning whisper.cpp...');
+        await runCmd('git', ['clone', '--depth', '1', 'https://github.com/ggerganov/whisper.cpp.git', whisperDir]);
+      }
+      const buildDir = join(whisperDir, 'build');
+      mkdirSync(buildDir, { recursive: true });
+      await telegram.send(chatId, 'Building whisper-cli (this may take a few minutes)...');
+      await runCmd('cmake', ['-S', whisperDir, '-B', buildDir], { timeout: 120_000 });
+      await runCmd('cmake', ['--build', buildDir, '--config', 'Release', '-j4'], { timeout: 600_000 });
+    }
+
+    // TTS: edge-tts
+    await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
+
     const s = store.loadSettings();
-    (s as any)[settingKey] = true;
+    s.voiceReceive = true;
+    s.voiceReply = true;
     store.saveSettings(s);
 
-    await telegram.send(chatId, 'Voice deps installed. Restarting...');
+    await telegram.send(chatId, 'Voice ready. Restarting...');
     abortController.abort();
     setTimeout(() => process.exit(0), 200);
   } catch (err) {
     const s = store.loadSettings();
-    (s as any)[settingKey] = false;
+    s.voiceReceive = false;
+    s.voiceReply = false;
     store.saveSettings(s);
     await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 200)}`).catch(() => {});
   }
