@@ -170,14 +170,14 @@ The agent searches the [official MCP Registry](https://registry.modelcontextprot
 
 ## Voice
 
-Toggle in `/settings` — CakeAgent installs everything automatically on first enable:
+Toggle in `/settings` — CakeAgent installs everything automatically on first enable.
 
-| | Provider | Install |
-|---|---|---|
-| **Speech-to-text** | whisper.cpp (local) | ffmpeg, cmake, whisper model, compiles whisper-cli |
-| **Text-to-speech** | Edge TTS (Python CLI) | python3-pip, edge-tts |
+| | Provider | Runs where | Install |
+|---|---|---|---|
+| **Speech-to-text** | whisper.cpp | Local | ffmpeg, cmake, whisper model, compiles whisper-cli |
+| **Text-to-speech** | Edge TTS | Microsoft (free, no API key) | python3-pip, edge-tts |
 
-No API keys, no cloud transcription. Everything runs on your server.
+STT is fully local — your audio never leaves the server. TTS uses Microsoft's Edge speech service (free, no key required, no account needed).
 
 ---
 
