@@ -359,6 +359,10 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     },
   );
 
+  if (newSessionId) store.setSession(groupFolder, newSessionId);
+  lastProcessed.set(msg.chatId, msg.timestamp);
+  messagesProcessed++;
+
   for (const pending of state.pendingMessages.splice(0)) {
     await telegram.send(pending.chatId || msg.chatId, pending.text);
   }
@@ -385,10 +389,6 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   if (result) store.saveOutgoing(msg.chatId, result, Date.now());
 
   refreshBotCommands();
-
-  if (newSessionId) store.setSession(groupFolder, newSessionId);
-  lastProcessed.set(msg.chatId, msg.timestamp);
-  messagesProcessed++;
   } finally {
     telegram.stopTyping();
     agentBusy = false;
