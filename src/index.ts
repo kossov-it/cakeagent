@@ -216,8 +216,19 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
     }
     case 'update': {
       await telegram.send(chatId, 'Updating...');
-      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, (err, _stdout, stderr) => {
-        if (err) telegram.send(chatId, `Update failed: ${(stderr || err.message).slice(0, 200)}`).catch(() => {});
+      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, async (err, stdout, stderr) => {
+        if (err) {
+          await telegram.send(chatId, `Update failed: ${(stderr || err.message).slice(0, 200)}`).catch(() => {});
+          return;
+        }
+        const updated = stdout.includes('Updated and restarted') || stdout.includes('Updating');
+        if (updated || !stdout.includes('No changes')) {
+          await telegram.send(chatId, 'Updated. Restarting...').catch(() => {});
+          abortController.abort();
+          setTimeout(() => process.exit(0), 200);
+        } else {
+          await telegram.send(chatId, 'Already up to date.').catch(() => {});
+        }
       });
       return true;
     }

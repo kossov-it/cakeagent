@@ -42,10 +42,10 @@ SUDOERS
     systemctl daemon-reload
   fi
   if [ "$BEFORE" != "$AFTER" ]; then
-    systemctl restart "$SERVICE_NAME"
-    echo "✅ Updated and restarted."
+    # Restart if we can (SSH context). Inside systemd sandbox, the caller handles restart.
+    systemctl restart "$SERVICE_NAME" 2>/dev/null && echo "✅ Updated and restarted." || echo "✅ Updated and built. Restart pending."
   else
-    echo "✅ Config refreshed. No restart needed."
+    echo "✅ No changes."
   fi
   exit 0
 fi
