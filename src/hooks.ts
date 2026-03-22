@@ -5,9 +5,12 @@ import { join } from 'node:path';
 
 // Deny patterns for Bash commands — defense-in-depth layer
 // Primary security: systemd sandboxing + limited sudoers + file path hooks
+// $() is allowed for legitimate CLI use (skills, jq, date, etc.)
+// Only dangerous subshell patterns are blocked (curl/wget exfil, rm/dd/mv destructive)
 const BASH_DENY = [
   // Shell injection / inline execution
-  /\$\(/,                              // command substitution
+  /\$\(\s*(curl|wget)\b/,              // subshell exfiltration
+  /\$\(\s*(rm|dd|mv)\b/,              // subshell destructive
   /`[^`]+`/,                           // backtick execution
   /\|\s*(ba)?sh\b/,                    // pipe to shell
   /\|\s*zsh\b/,

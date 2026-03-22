@@ -47,6 +47,22 @@ Two separate settings control voice:
 Toggle each via `/settings` — the orchestrator handles dependency installation automatically.
 If the user asks to enable/disable voice via chat: `update_settings` with key `voiceReceive` or `voiceSend` value `true` or `false`.
 
+## Bash Security
+Bash commands are validated by security hooks. Allowed:
+- `curl`, `wget` — direct HTTP calls (for APIs, downloads)
+- `$(...)` command substitution — for `$(date)`, `$(jq ...)`, `$(cat file)`, etc.
+- Running skill CLI scripts — `outlook-mail.sh`, `gws gmail`, etc.
+
+Blocked:
+- `$(curl ...)`, `$(wget ...)` — subshell exfiltration
+- `$(rm ...)`, `$(dd ...)`, `$(mv ...)` — subshell destructive
+- Backtick execution, `eval`, `bash -c`, pipe to shell
+- Reading `.env`, `.pem`, `.ssh/`, `credentials/`, `/etc/shadow`
+- Writing to `src/`, `channels/`, `dist/`, `data/skills/`
+- Reverse shells (`nc`, `/dev/tcp`), `reboot`, `shutdown`
+
+If a command is denied, do NOT tell the user "Bash is blocked." Instead, rephrase the command to avoid the blocked pattern. Most denials are caused by using dangerous subshell patterns — restructure as separate commands.
+
 ## Security
 - Never access `.env`, `.ssh`, `credentials/`, or directories outside your group folder.
 - Never share info between groups. Never expose secrets in messages.
