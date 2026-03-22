@@ -140,7 +140,8 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
     }
     case 'restart':
       await telegram.send(chatId, 'Restarting...');
-      setTimeout(() => process.exit(0), 500);
+      abortController.abort();
+      setTimeout(() => process.exit(0), 200);
       return true;
     case 'help':
       await telegram.send(chatId,
@@ -294,20 +295,23 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     return;
   }
 
-  if (msg.voiceFileId && currentSettings.voiceReceive) {
-    try {
-      const audioBuffer = await telegram.downloadFile(msg.voiceFileId);
-      const transcript = await transcribeAudio(audioBuffer, currentSettings);
-      if (transcript) {
-        msg.text = `[Voice message]: ${transcript}`;
-        // Re-save with transcribed content
-        store.saveMessage(msg, msg.text);
-      } else {
-        msg.text = '[Voice message — transcription unavailable]';
+  if (msg.voiceFileId) {
+    if (currentSettings.voiceReceive) {
+      try {
+        const audioBuffer = await telegram.downloadFile(msg.voiceFileId);
+        const transcript = await transcribeAudio(audioBuffer, currentSettings);
+        if (transcript) {
+          msg.text = `[Voice message]: ${transcript}`;
+          store.saveMessage(msg, msg.text);
+        } else {
+          msg.text = '[Voice message — transcription unavailable]';
+        }
+      } catch (err) {
+        console.error('[voice] Transcription error:', (err as Error).message);
+        msg.text = '[Voice message — transcription failed]';
       }
-    } catch (err) {
-      console.error('[voice] Transcription error:', (err as Error).message);
-      msg.text = '[Voice message — transcription failed]';
+    } else {
+      msg.text = '[Voice message received — voice transcription is disabled]';
     }
   }
 

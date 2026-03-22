@@ -77,18 +77,27 @@ export async function synthesizeSpeech(
   const oggFile = tmpPath('ogg');
 
   try {
-    const mod: any = await (Function('return import("edge-tts")')()).catch(() => null);
+    // edge-tts npm package may have broken main entry — try multiple import paths
+    let mod: any = null;
+    for (const path of ['edge-tts', 'edge-tts/out/index.js']) {
+      mod = await (Function(`return import("${path}")`))().catch(() => null);
+      if (mod) break;
+    }
     if (!mod) {
-      console.warn('[voice] edge-tts not installed. Run: npm i edge-tts');
+      console.warn('[voice] edge-tts not installed. Run: cd /opt/cakeagent && npm i edge-tts');
       return null;
     }
 
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
 
-    // Try common edge-tts API patterns
     let mp3Written = false;
     if (mod.EdgeTTS) {
       const tts = new mod.EdgeTTS();
+      await tts.synthesize(text, voice, { outputFile: mp3File });
+      mp3Written = existsSync(mp3File);
+    }
+    if (!mp3Written && mod.default?.EdgeTTS) {
+      const tts = new mod.default.EdgeTTS();
       await tts.synthesize(text, voice, { outputFile: mp3File });
       mp3Written = existsSync(mp3File);
     }
@@ -97,7 +106,7 @@ export async function synthesizeSpeech(
       mp3Written = existsSync(mp3File);
     }
     if (!mp3Written) {
-      console.warn('[voice] edge-tts: no compatible API found');
+      console.warn('[voice] edge-tts: synthesis failed — check package version');
       return null;
     }
 

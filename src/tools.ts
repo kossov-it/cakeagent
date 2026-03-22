@@ -109,12 +109,13 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             const url = `https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(args.query)}&limit=10`;
             const res = await fetch(url);
             if (!res.ok) return { content: [{ type: 'text' as const, text: `Registry returned ${res.status}` }] };
-            const data = await res.json() as { servers?: Array<{ name?: string; description?: string; packages?: any; repository?: any }> };
+            const data = await res.json() as { servers?: Array<{ server?: { name?: string; description?: string; repository?: { url?: string } } }> };
             const servers = data.servers ?? [];
             if (servers.length === 0) return { content: [{ type: 'text' as const, text: 'No servers found.' }] };
-            const list = servers.map((s, i) =>
-              `${i + 1}. **${s.name ?? 'unknown'}**\n   ${s.description ?? 'No description'}\n   Packages: ${JSON.stringify(s.packages ?? {})}`
-            ).join('\n\n');
+            const list = servers.map((entry, i) => {
+              const s = entry.server ?? {};
+              return `${i + 1}. **${s.name ?? 'unknown'}**\n   ${s.description ?? 'No description'}\n   Repo: ${s.repository?.url ?? 'N/A'}`;
+            }).join('\n\n');
             return { content: [{ type: 'text' as const, text: list }] };
           } catch (err) {
             return { content: [{ type: 'text' as const, text: `Registry error: ${(err as Error).message}` }] };

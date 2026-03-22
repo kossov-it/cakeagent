@@ -14,10 +14,7 @@ RestartSec=10
 
 EnvironmentFile=/opt/cakeagent/.env
 
-NoNewPrivileges=false
-ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/opt/cakeagent
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
