@@ -45,6 +45,9 @@ npx tsc --noEmit     # Type-check only
 - Settings hot-reloaded from `data/settings.json` per invocation
 
 ## Security
+- Dedicated `cakeagent` system user with nologin shell
+- systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
+- Passwordless sudo limited to `/usr/bin/apt-get` and `/usr/bin/apt` only
 - Bash commands validated by PreToolUse hook (deny injection patterns)
 - Write/Edit to CLAUDE.md, .env, credentials/ blocked by PreToolUse hook
 - Rate limiting persisted in SQLite
@@ -52,3 +55,4 @@ npx tsc --noEmit     # Type-check only
 - Chat ID + sender allowlist — only configured Telegram chats and senders processed
 - Concurrency guard (`agentBusy`) — one agent invocation at a time
 - Memory injection — memory.md prepended to every prompt, not relying on agent file reads
+- Streaming responses — assistant text sent immediately, final result deduped

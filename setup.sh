@@ -68,22 +68,27 @@ echo "   ✅ Node.js $(node -v)"
 echo ""
 echo "2️⃣  Creating system user..."
 
+sudo mkdir -p "$INSTALL_DIR"
 if id "$SERVICE_USER" &>/dev/null; then
   echo "   ✅ User '$SERVICE_USER' exists"
 else
-  sudo useradd -r -m -d "$INSTALL_DIR" -s /usr/sbin/nologin "$SERVICE_USER"
+  sudo useradd -r -d "$INSTALL_DIR" -s /usr/sbin/nologin "$SERVICE_USER"
   echo "   ✅ Created user '$SERVICE_USER'"
 fi
+sudo chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 echo ""
 echo "3️⃣  Installing to $INSTALL_DIR..."
 
-sudo mkdir -p "$INSTALL_DIR"
-sudo chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
-
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
-  sudo cp -r "$SCRIPT_DIR"/{src,channels,groups,package.json,package-lock.json,tsconfig.json,cakeagent.service,.env.example,.gitignore,setup.sh,README.md,CLAUDE.md} "$INSTALL_DIR/" 2>/dev/null || true
+  sudo cp -r "$SCRIPT_DIR"/src "$SCRIPT_DIR"/channels "$SCRIPT_DIR"/groups \
+    "$SCRIPT_DIR"/package.json "$SCRIPT_DIR"/tsconfig.json \
+    "$SCRIPT_DIR"/cakeagent.service "$SCRIPT_DIR"/setup.sh \
+    "$INSTALL_DIR/"
+  sudo cp "$SCRIPT_DIR"/package-lock.json "$SCRIPT_DIR"/.env.example \
+    "$SCRIPT_DIR"/.gitignore "$SCRIPT_DIR"/README.md "$SCRIPT_DIR"/CLAUDE.md \
+    "$INSTALL_DIR/" 2>/dev/null || true
   sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 fi
 
@@ -95,9 +100,13 @@ NPM_BIN=$(command -v npm)
 NPX_BIN=$(command -v npx)
 NODE_DIR=$(dirname "$NODE_BIN")
 
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN install 2>&1" | tail -1
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN i edge-tts 2>/dev/null" || true
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN run build 2>&1" | tail -1
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN install --no-fund --no-audit 2>&1" | tail -3
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN i edge-tts --no-fund --no-audit 2>/dev/null" || true
+echo "   Building..."
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN run build" || {
+  echo "   ❌ Build failed"
+  exit 1
+}
 echo "   ✅ Built"
 
 echo ""

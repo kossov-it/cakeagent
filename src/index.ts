@@ -214,7 +214,10 @@ const schedulerInterval = setInterval(async () => {
       if (task.scheduleType === 'once') {
         store.updateSchedule(task.id, { status: 'completed' } as any);
       } else if (task.scheduleType === 'interval') {
-        const nextRun = new Date(Date.now() + Number(task.scheduleValue)).toISOString();
+        const ms = Number(task.scheduleValue);
+        const nextRun = isNaN(ms) || ms <= 0
+          ? new Date(Date.now() + 60 * 60_000).toISOString()
+          : new Date(Date.now() + ms).toISOString();
         store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
       } else {
         // Cron: advance by 24h as fallback (agent can set precise nextRun via update_schedule)
@@ -346,7 +349,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   const sessionId = store.getSession(groupFolder) ?? undefined;
 
   state.currentGroupFolder = groupFolder;
-  let streamed = false;
+  let lastSentText = '';
 
   const { sessionId: newSessionId, result } = await runAgent(
     { prompt, groupFolder, chatId: msg.chatId, isMain: groupFolder === 'main', sessionId },
@@ -354,7 +357,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     async (text) => {
       telegram.stopTyping();
       await telegram.send(msg.chatId, text);
-      streamed = true;
+      lastSentText = text.trim();
       telegram.startTyping(msg.chatId);
     },
   );
@@ -377,7 +380,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     }
   }
 
-  if (result && !streamed) {
+  if (result && result.trim() !== lastSentText) {
     if (currentSettings.voiceReply && msg.voiceFileId) {
       const audio = await synthesizeSpeech(result, currentSettings);
       if (audio) await telegram.sendVoice(msg.chatId, audio);

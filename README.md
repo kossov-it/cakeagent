@@ -178,7 +178,8 @@ No API keys. No cloud. Voice notes processed entirely on-device. Enable via `/se
 | **Persistent rate limiting** | SQLite-backed, survives restarts |
 | **Audit trail** | Every tool invocation logged |
 | **`maxTurns: 25`** | Prevents runaway agent loops |
-| **systemd hardening** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
+| **Streaming dedup** | Final result only sent if not already streamed |
+| **systemd hardening** | `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp` |
 
 ---
 
