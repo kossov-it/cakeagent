@@ -45,7 +45,7 @@ export function loadConfig(): Config {
   return {
     telegramBotToken: token,
     telegramChatId: chatId,
-    dataDir: get('DATA_DIR') || './data',
-    groupsDir: get('GROUPS_DIR') || './groups',
+    dataDir: resolve(get('DATA_DIR') || './data'),
+    groupsDir: resolve(get('GROUPS_DIR') || './groups'),
   };
 }
