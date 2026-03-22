@@ -1,52 +1,46 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+INSTALL_DIR="/opt/cakeagent"
+SERVICE_USER="cakeagent"
+SERVICE_NAME="cakeagent"
+
 # --- Uninstall ---
 if [ "${1:-}" = "uninstall" ]; then
-  echo "🍰 CakeAgent Uninstall"
-  echo "======================"
+  echo "🍰 CakeAgent — Uninstall"
   echo ""
-  echo "This will:"
-  echo "  - Stop and remove the systemd service"
-  echo "  - Delete data/ (database, settings, memory)"
-  echo "  - Delete .env (credentials)"
-  echo "  - Delete .mcp.json (installed tools)"
-  echo "  - Delete node_modules/ and dist/"
+  echo "   This will completely remove CakeAgent:"
+  echo "   - systemd service"
+  echo "   - $INSTALL_DIR (all data, config, code)"
+  echo "   - System user '$SERVICE_USER'"
+  echo "   - Sudoers entry"
   echo ""
-  echo "  It will NOT delete source code, groups/main/CLAUDE.md, or credentials/"
-  echo ""
-  read -rp "   Proceed? [y/N]: " CONFIRM
-  CONFIRM_LOWER=$(echo "$CONFIRM" | tr '[:upper:]' '[:lower:]')
-  if [ "$CONFIRM_LOWER" != "y" ]; then
+  read -rp "   Type 'yes' to confirm: " CONFIRM
+  if [ "$CONFIRM" != "yes" ]; then
     echo "   Cancelled."
     exit 0
   fi
 
   echo ""
-  if sudo systemctl is-active cakeagent &>/dev/null; then
-    sudo systemctl stop cakeagent
-    echo "   ✅ Service stopped"
-  fi
-  if sudo systemctl is-enabled cakeagent &>/dev/null 2>&1; then
-    sudo systemctl disable cakeagent
-    echo "   ✅ Service disabled"
-  fi
-  if [ -f /etc/systemd/system/cakeagent.service ]; then
-    sudo rm /etc/systemd/system/cakeagent.service
-    sudo systemctl daemon-reload
-    echo "   ✅ Service file removed"
-  fi
+  sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  sudo systemctl disable "$SERVICE_NAME" 2>/dev/null || true
+  sudo rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+  sudo systemctl daemon-reload 2>/dev/null || true
+  echo "   ✅ Service removed"
 
-  rm -rf data/ node_modules/ dist/ .env .mcp.json
-  if [ -f /etc/sudoers.d/cakeagent ]; then
-    sudo rm /etc/sudoers.d/cakeagent
-    echo "   ✅ Sudoers entry removed"
+  sudo rm -f "/etc/sudoers.d/$SERVICE_NAME"
+  echo "   ✅ Sudoers entry removed"
+
+  sudo rm -rf "$INSTALL_DIR"
+  echo "   ✅ $INSTALL_DIR removed"
+
+  if id "$SERVICE_USER" &>/dev/null; then
+    sudo userdel "$SERVICE_USER" 2>/dev/null || true
+    echo "   ✅ User '$SERVICE_USER' removed"
   fi
-  echo "   ✅ Data, deps, and config removed"
 
   echo ""
-  echo "🧹 Uninstalled. Source code preserved in $(pwd)"
-  echo "   To fully remove: rm -rf $(pwd)"
+  echo "🧹 Fully uninstalled. No traces remain."
   exit 0
 fi
 
@@ -56,25 +50,96 @@ echo "🍰 CakeAgent Setup"
 echo "==================="
 echo ""
 
+# 1. Prerequisites
+echo "1️⃣  Checking prerequisites..."
+
 if ! command -v node &>/dev/null; then
-  echo "❌ Node.js 18+ is required. Install: https://nodejs.org"
+  echo "   ❌ Node.js 18+ required. Install: https://nodejs.org"
   exit 1
 fi
-
 NODE_VER=$(node -v | sed 's/v//' | cut -d. -f1)
 if [ "$NODE_VER" -lt 18 ]; then
-  echo "❌ Node.js 18+ required (found $(node -v))"
+  echo "   ❌ Node.js 18+ required (found $(node -v))"
   exit 1
 fi
+echo "   ✅ Node.js $(node -v)"
 
-echo "1️⃣  Create a Telegram bot:"
-echo "   → Open https://t.me/BotFather"
-echo "   → Send /newbot and follow the prompts"
+if ! command -v npm &>/dev/null; then
+  echo "   ❌ npm not found"
+  exit 1
+fi
+echo "   ✅ npm $(npm -v)"
+
+# 2. Create system user
 echo ""
-read -rp "   Paste your bot token: " BOT_TOKEN
+echo "2️⃣  Setting up system user..."
+
+if id "$SERVICE_USER" &>/dev/null; then
+  echo "   ✅ User '$SERVICE_USER' exists"
+else
+  sudo useradd -r -m -d "$INSTALL_DIR" -s /usr/sbin/nologin "$SERVICE_USER"
+  echo "   ✅ Created user '$SERVICE_USER'"
+fi
+
+# 3. Install directory
+echo ""
+echo "3️⃣  Installing to $INSTALL_DIR..."
+
+sudo mkdir -p "$INSTALL_DIR"
+sudo chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+
+# Copy source files (if running from a git clone)
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
+  sudo cp -r "$SCRIPT_DIR"/{src,channels,groups,package.json,package-lock.json,tsconfig.json,cakeagent.service,.env.example,.gitignore} "$INSTALL_DIR/" 2>/dev/null || true
+  sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+fi
+
+# 4. Install dependencies
+echo ""
+echo "4️⃣  Installing dependencies..."
+
+sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm install 2>&1" | tail -1
+sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm i edge-tts 2>/dev/null" || true
+sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm run build 2>&1" | tail -1
+echo "   ✅ Built successfully"
+
+# 5. System dependencies
+echo ""
+echo "5️⃣  Installing system packages..."
+
+if ! command -v ffmpeg &>/dev/null; then
+  sudo apt-get install -y ffmpeg 2>/dev/null || sudo dnf install -y ffmpeg 2>/dev/null || echo "   ⚠️  Could not install ffmpeg"
+fi
+command -v ffmpeg &>/dev/null && echo "   ✅ ffmpeg" || echo "   ⚠️  ffmpeg not found"
+
+# 6. Passwordless sudo for apt (so the agent can install packages)
+echo ""
+echo "6️⃣  Configuring agent permissions..."
+
+SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
+echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt" | sudo tee "$SUDOERS_FILE" > /dev/null
+sudo chmod 440 "$SUDOERS_FILE"
+echo "   ✅ Agent can install system packages"
+
+# 7. Create data directories
+sudo -u "$SERVICE_USER" mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/groups/main" "$INSTALL_DIR/credentials"
+
+# --- Credentials ---
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# 8. Telegram
+echo "7️⃣  Telegram bot setup:"
+echo ""
+echo "   → Create a bot: https://t.me/BotFather (send /newbot)"
+echo ""
+read -rp "   Bot token: " BOT_TOKEN
 
 if [ -z "$BOT_TOKEN" ]; then
-  echo "❌ Bot token required"
+  echo "   ❌ Required"
   exit 1
 fi
 
@@ -82,135 +147,95 @@ echo "   Validating..."
 RESULT=$(curl -sf "https://api.telegram.org/bot${BOT_TOKEN}/getMe" 2>/dev/null || echo '{"ok":false}')
 if echo "$RESULT" | grep -q '"ok":true'; then
   BOT_NAME=$(echo "$RESULT" | grep -o '"first_name":"[^"]*"' | cut -d'"' -f4)
-  echo "   ✅ Bot found: $BOT_NAME"
+  echo "   ✅ $BOT_NAME"
 else
-  echo "   ❌ Invalid token. Check and try again."
+  echo "   ❌ Invalid token"
   exit 1
 fi
 
 echo ""
-echo "2️⃣  Get your Telegram user ID:"
-echo "   → Message https://t.me/userinfobot on Telegram"
+echo "   → Get your user ID: https://t.me/userinfobot"
 echo ""
 read -rp "   Your Telegram user ID: " CHAT_ID
 
 if [ -z "$CHAT_ID" ]; then
-  echo "❌ Chat ID required"
+  echo "   ❌ Required"
   exit 1
 fi
 
+# 9. Claude auth
 echo ""
-echo "3️⃣  Claude authentication:"
+echo "8️⃣  Claude authentication:"
 echo ""
-echo "   [1] Subscription token (recommended — uses your Claude Pro/Team plan)"
-echo "   [2] API key (pay-per-use via console.anthropic.com)"
+echo "   [1] Subscription token (recommended)"
+echo "       Run 'claude setup-token' in another terminal → paste the token"
+echo ""
+echo "   [2] API key (pay-per-use)"
+echo "       Get from https://console.anthropic.com/settings/keys"
 echo ""
 read -rp "   Choose [1/2]: " AUTH_CHOICE
 
-API_KEY=""
-OAUTH_TOKEN=""
+AUTH_KEY=""
+AUTH_VAR=""
 if [ "$AUTH_CHOICE" = "2" ]; then
-  echo ""
-  echo "   → Go to https://console.anthropic.com/settings/keys"
-  echo "   → Create a key (starts with sk-ant-api)"
-  echo ""
-  read -rp "   Paste your API key: " API_KEY
-
-  if [ -z "$API_KEY" ]; then
-    echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
-  else
-    echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
-  fi
+  read -rp "   API key: " AUTH_KEY
+  AUTH_VAR="ANTHROPIC_API_KEY"
 else
   echo ""
-  echo "   Run this in a separate terminal:"
+  echo "   Run 'claude setup-token' in another terminal now."
+  echo "   It gives you a token starting with sk-ant-oat..."
   echo ""
-  echo "     claude setup-token"
-  echo ""
-  echo "   It will display a token starting with sk-ant-oat..."
-  echo "   Copy that token and paste it below."
-  echo ""
-  read -rp "   Paste your subscription token: " OAUTH_TOKEN
-
-  if [ -z "$OAUTH_TOKEN" ]; then
-    echo "   ⚠️  No token provided. Run 'claude setup-token' later and add"
-    echo "      CLAUDE_CODE_OAUTH_TOKEN to .env before starting."
-  else
-    echo "   ✅ Token: ${OAUTH_TOKEN:0:10}$( printf '*%.0s' $(seq 1 $((${#OAUTH_TOKEN} - 14))) )${OAUTH_TOKEN: -4}"
-  fi
+  read -rp "   Subscription token: " AUTH_KEY
+  AUTH_VAR="CLAUDE_CODE_OAUTH_TOKEN"
 fi
 
-cat > .env <<EOF
+if [ -z "$AUTH_KEY" ]; then
+  echo "   ⚠️  No auth provided. Add it to $INSTALL_DIR/.env before starting."
+else
+  MASKED="${AUTH_KEY:0:10}$(printf '*%.0s' $(seq 1 $((${#AUTH_KEY} - 14))))${AUTH_KEY: -4}"
+  echo "   ✅ $MASKED"
+fi
+
+# 10. Write .env
+ENV_FILE="$INSTALL_DIR/.env"
+sudo bash -c "cat > $ENV_FILE" <<EOF
 TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
 TELEGRAM_CHAT_ID=${CHAT_ID}
 EOF
 
-if [ -n "$OAUTH_TOKEN" ]; then
-  echo "CLAUDE_CODE_OAUTH_TOKEN=${OAUTH_TOKEN}" >> .env
-elif [ -n "$API_KEY" ]; then
-  echo "ANTHROPIC_API_KEY=${API_KEY}" >> .env
+if [ -n "$AUTH_KEY" ]; then
+  sudo bash -c "echo '${AUTH_VAR}=${AUTH_KEY}' >> $ENV_FILE"
 fi
 
-chmod 600 .env
-echo "   ✅ .env written (chmod 600)"
+sudo chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
+sudo chmod 600 "$ENV_FILE"
+echo ""
+echo "   ✅ Configuration saved"
+
+# 11. Install systemd service
+echo ""
+echo "9️⃣  Installing service..."
+
+sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
+    -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
+    -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
+    "$INSTALL_DIR/cakeagent.service" | sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null
+
+sudo systemctl daemon-reload
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl start "$SERVICE_NAME"
+
+echo "   ✅ Service started"
 
 echo ""
-echo "4️⃣  Installing dependencies..."
-npm install
-npm i edge-tts 2>/dev/null || true
-npm run build
-echo "   ✅ Built successfully"
-
-mkdir -p data groups/main
-
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "5️⃣  System dependencies..."
-sudo apt-get install -y ffmpeg 2>/dev/null || sudo dnf install -y ffmpeg 2>/dev/null || echo "   ⚠️  Could not install ffmpeg"
-command -v ffmpeg &>/dev/null && echo "   ✅ ffmpeg" || echo "   ⚠️  ffmpeg missing"
-echo "   ✅ edge-tts"
-
+echo "🎉 CakeAgent is running!"
 echo ""
-echo "6️⃣  Agent permissions..."
-CURRENT_USER=$(whoami)
-SUDOERS_FILE="/etc/sudoers.d/cakeagent"
-if [ ! -f "$SUDOERS_FILE" ]; then
-  echo "   The bot needs passwordless sudo for apt to install packages on its own."
-  echo "$CURRENT_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt" | sudo tee "$SUDOERS_FILE" > /dev/null
-  sudo chmod 440 "$SUDOERS_FILE"
-  echo "   ✅ Passwordless apt configured for $CURRENT_USER"
-else
-  echo "   ✅ Passwordless apt already configured"
-fi
-
+echo "   Send a message to your bot on Telegram."
+echo "   On first message, it will guide you through personalization."
 echo ""
-echo "7️⃣  Install as systemd service?"
-read -rp "   Install service? [Y/n]: " INSTALL_SERVICE
-INSTALL_SERVICE_LOWER=$(echo "$INSTALL_SERVICE" | tr '[:upper:]' '[:lower:]')
-
-if [ "$INSTALL_SERVICE_LOWER" != "n" ]; then
-  INSTALL_DIR=$(pwd)
-  CURRENT_USER=$(whoami)
-
-  sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
-      -e "s|User=cakeagent|User=${CURRENT_USER}|g" \
-      -e "s|Group=cakeagent|Group=${CURRENT_USER}|g" \
-      cakeagent.service > /tmp/cakeagent.service
-
-  sudo cp /tmp/cakeagent.service /etc/systemd/system/cakeagent.service
-  sudo systemctl daemon-reload
-  sudo systemctl enable cakeagent
-  sudo systemctl start cakeagent
-
-  echo "   ✅ Service installed and started"
-  echo ""
-  echo "🎉 Done! Send a message to your bot on Telegram."
-  echo ""
-  echo "   sudo systemctl status cakeagent"
-  echo "   sudo journalctl -u cakeagent -f"
-  echo ""
-  echo "   To uninstall: bash setup.sh uninstall"
-else
-  echo ""
-  echo "🎉 Done! Start with: npm start"
-  echo "   To uninstall: bash setup.sh uninstall"
-fi
+echo "   Logs:      sudo journalctl -u $SERVICE_NAME -f"
+echo "   Status:    sudo systemctl status $SERVICE_NAME"
+echo "   Restart:   /restart (via Telegram)"
+echo "   Uninstall: bash setup.sh uninstall"

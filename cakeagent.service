@@ -12,20 +12,16 @@ ExecStart=/usr/bin/node dist/src/index.js
 Restart=always
 RestartSec=10
 
-# Environment
 EnvironmentFile=/opt/cakeagent/.env
 
-# Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=false
 ReadWritePaths=/opt/cakeagent
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=cakeagent
