@@ -109,12 +109,14 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
     if (settings.voiceReceive) {
       await telegram.send(chatId, 'Setting up voice input (STT)...');
       try {
-        const { execFileSync } = await import('node:child_process');
-        execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+        const { execFileSync, execSync } = await import('node:child_process');
+        try { execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } }); } catch { /* check below */ }
+        const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+        if (!hasFfmpeg) throw new Error('ffmpeg install failed');
         const modelsDir = join(config.dataDir, 'models');
         mkdirSync(modelsDir, { recursive: true });
         if (!existsSync(join(modelsDir, 'ggml-base.bin'))) {
-          execFileSync('curl', ['-L', '-o', join(modelsDir, 'ggml-base.bin'), 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'], { timeout: 300_000, stdio: 'pipe' });
+          execFileSync('sudo', ['curl', '-L', '-o', join(modelsDir, 'ggml-base.bin'), 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'], { timeout: 300_000, stdio: 'pipe' });
         }
         await telegram.send(chatId, 'Voice input ready.');
       } catch (err) {
@@ -128,7 +130,9 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
       await telegram.send(chatId, 'Setting up voice output (TTS)...');
       try {
         const { execFileSync } = await import('node:child_process');
-        execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } });
+        try { execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe', env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' } }); } catch { /* check below */ }
+        const hasFfmpeg = (() => { try { execFileSync('ffmpeg', ['-version'], { stdio: 'pipe' }); return true; } catch { return false; } })();
+        if (!hasFfmpeg) throw new Error('ffmpeg install failed');
         execFileSync('npm', ['i', 'edge-tts'], { cwd: '/opt/cakeagent', timeout: 60_000, stdio: 'pipe' });
         await telegram.send(chatId, 'Voice output ready.');
       } catch (err) {
