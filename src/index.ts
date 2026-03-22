@@ -113,16 +113,14 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
     settings.voiceReceive = !settings.voiceReceive;
     if (settings.voiceReceive) {
       await telegram.send(chatId, 'Installing voice input deps — this may take a minute...');
-      store.saveSettings(settings);
-      installVoiceDeps(chatId, 'stt');
+      installVoiceDeps(chatId, 'stt', 'voiceReceive');
       return settings;
     }
   } else if (key === 'voiceReply') {
     settings.voiceReply = !settings.voiceReply;
     if (settings.voiceReply) {
       await telegram.send(chatId, 'Installing voice output deps — this may take a minute...');
-      store.saveSettings(settings);
-      installVoiceDeps(chatId, 'tts');
+      installVoiceDeps(chatId, 'tts', 'voiceReply');
       return settings;
     }
   }
@@ -140,7 +138,7 @@ function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv })
   });
 }
 
-async function installVoiceDeps(chatId: string, type: 'stt' | 'tts'): Promise<void> {
+async function installVoiceDeps(chatId: string, type: 'stt' | 'tts', settingKey: string): Promise<void> {
   try {
     await runCmd('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], {
       env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
@@ -158,10 +156,17 @@ async function installVoiceDeps(chatId: string, type: 'stt' | 'tts'): Promise<vo
       await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
     }
 
+    const s = store.loadSettings();
+    (s as any)[settingKey] = true;
+    store.saveSettings(s);
+
     await telegram.send(chatId, 'Voice deps installed. Restarting...');
     abortController.abort();
     setTimeout(() => process.exit(0), 200);
   } catch (err) {
+    const s = store.loadSettings();
+    (s as any)[settingKey] = false;
+    store.saveSettings(s);
     await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 200)}`).catch(() => {});
   }
 }
