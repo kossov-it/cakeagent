@@ -22,7 +22,7 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 # Agent workspace + apt package paths (sudo apt needs /usr, /var, /etc)
-ReadWritePaths=/opt/cakeagent /usr /var/cache/apt /var/lib/dpkg /var/lib/apt /var/log /etc/apt
+ReadWritePaths=/opt /usr /var /etc
 
 StandardOutput=journal
 StandardError=journal
