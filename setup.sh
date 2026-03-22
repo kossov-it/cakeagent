@@ -98,39 +98,16 @@ fi
 echo ""
 echo "3️⃣  Claude authentication:"
 echo ""
-echo "   [1] Claude subscription (recommended)"
-echo "   [2] API key"
+echo "   You need a Claude API key or subscription token."
 echo ""
-read -rp "   Choose [1/2]: " AUTH_CHOICE
+echo "   → Go to https://console.anthropic.com/settings/keys"
+echo "   → Create a key (starts with sk-ant-)"
+echo ""
+read -rsp "   Paste your key (hidden): " API_KEY
+echo ""
 
-API_KEY=""
-if [ "$AUTH_CHOICE" = "2" ]; then
-  echo ""
-  echo "   → Get a key from https://console.anthropic.com/settings/keys"
-  read -rsp "   API key (hidden): " API_KEY
-  echo ""
-else
-  ALREADY_AUTH=false
-  if command -v claude &>/dev/null; then
-    if claude auth status 2>&1 | grep -qi "logged in\|authenticated"; then
-      echo "   ✅ Already authenticated via Claude subscription"
-      ALREADY_AUTH=true
-    fi
-  fi
-
-  if [ "$ALREADY_AUTH" = "false" ]; then
-    echo ""
-    echo "   Claude subscription requires interactive auth."
-    echo "   After setup completes, run one of these:"
-    echo ""
-    echo "     claude auth login          # If you have a browser"
-    echo "     claude setup-token         # Headless server (paste a token)"
-    echo ""
-    echo "   Setup will continue without auth — CakeAgent won't start until"
-    echo "   you authenticate or set ANTHROPIC_API_KEY in .env"
-    echo ""
-    read -rp "   Press Enter to continue..."
-  fi
+if [ -z "$API_KEY" ]; then
+  echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
 fi
 
 cat > .env <<EOF
