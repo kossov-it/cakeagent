@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Ensure interactive input works even when piped (curl | bash)
+if [ ! -t 0 ] && [ -e /dev/tty ]; then
+  exec </dev/tty
+fi
+
 INSTALL_DIR="/opt/cakeagent"
 SERVICE_USER="cakeagent"
 SERVICE_NAME="cakeagent"
