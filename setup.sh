@@ -17,6 +17,14 @@ if [ "${1:-}" = "update" ]; then
   sudo -u "$SERVICE_USER" git pull
   NODE_DIR=$(dirname "$(command -v node)")
   sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"
+  # Refresh sudoers
+  SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
+  cat <<SUDOERS > "$SUDOERS_FILE"
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/curl, /usr/bin/bash $INSTALL_DIR/setup.sh *
+Defaults:$SERVICE_USER !requiretty
+SUDOERS
+  chmod 440 "$SUDOERS_FILE"
+  # Refresh service file
   sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
       -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
       -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
