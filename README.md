@@ -187,7 +187,7 @@ CakeAgent gives Claude real system access — it installs packages, writes files
 
 ```
 Layer 1 — OS         systemd sandbox + dedicated user
-Layer 2 — Sudoers    Whitelist: apt-get, apt, setup.sh (no curl, no bash -c)
+Layer 2 — Sudoers    Whitelist: apt-get, apt, dpkg, setup.sh
 Layer 3 — Hooks      PreToolUse validators on every tool call
 Layer 4 — Agent      acceptEdits mode, turn limit, sender allowlist
 ```
@@ -242,7 +242,7 @@ Every tool call — bash, file read, file write, grep, glob, MCP — is logged t
 | **Extensions** | MCP open standard | Custom plugins ([7% leak credentials](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/)) |
 | **Process isolation** | Dedicated user, systemd sandbox, no root | Runs as installing user |
 | **Tool validation** | PreToolUse hook on every call | No call-level validation |
-| **Sudo scope** | `apt-get` and `apt` only | Full shell access |
+| **Sudo scope** | `apt-get`, `apt`, `dpkg` only | Full shell access |
 | **Credentials** | `.env` with 600 perms, blocked from agent | Plaintext in config files |
 | **Known CVEs** | 0 | [CVE-2026-25253](https://www.proarch.com/blog/threats-vulnerabilities/openclaw-rce-vulnerability-cve-2026-25253) (critical RCE) + [135K exposed instances](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/) |
 

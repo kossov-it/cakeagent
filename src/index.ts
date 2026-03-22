@@ -129,9 +129,10 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   return settings;
 }
 
-function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<string> {
+function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv; timeout?: number }): Promise<string> {
+  const { timeout = 300_000, ...rest } = opts ?? {};
   return new Promise((resolve, reject) => {
-    execFile(cmd, args, { timeout: 300_000, ...opts }, (err, stdout, stderr) => {
+    execFile(cmd, args, { timeout, ...rest }, (err, stdout, stderr) => {
       if (err) reject(new Error(stderr || err.message));
       else resolve(stdout);
     });
@@ -139,20 +140,43 @@ function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv })
 }
 
 async function installVoiceDeps(chatId: string, type: 'stt' | 'tts', settingKey: string): Promise<void> {
+  const apt = (pkgs: string[]) => runCmd('sudo', ['apt-get', 'install', '-y', ...pkgs], {
+    env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+  });
+
   try {
-    await runCmd('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], {
+    await runCmd('sudo', ['dpkg', '--configure', '-a']);
+    await runCmd('sudo', ['apt-get', 'install', '-f', '-y'], {
       env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
     });
 
     if (type === 'stt') {
+      await apt(['ffmpeg', 'cmake', 'g++', 'git']);
+
       const modelsDir = join(config.dataDir, 'models');
       mkdirSync(modelsDir, { recursive: true });
       const modelPath = join(modelsDir, 'ggml-base.bin');
       if (!existsSync(modelPath)) {
+        await telegram.send(chatId, 'Downloading whisper model...');
         await runCmd('curl', ['-L', '-o', modelPath,
           'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin']);
       }
+
+      const whisperDir = resolve('whisper.cpp');
+      const whisperBin = join(whisperDir, 'build', 'bin', 'whisper-cli');
+      if (!existsSync(whisperBin)) {
+        if (!existsSync(join(whisperDir, 'CMakeLists.txt'))) {
+          await telegram.send(chatId, 'Cloning whisper.cpp...');
+          await runCmd('git', ['clone', '--depth', '1', 'https://github.com/ggerganov/whisper.cpp.git', whisperDir]);
+        }
+        const buildDir = join(whisperDir, 'build');
+        mkdirSync(buildDir, { recursive: true });
+        await telegram.send(chatId, 'Building whisper-cli (this may take a few minutes)...');
+        await runCmd('cmake', ['-S', whisperDir, '-B', buildDir], { timeout: 120_000 });
+        await runCmd('cmake', ['--build', buildDir, '--config', 'Release', '-j4'], { timeout: 600_000 });
+      }
     } else {
+      await apt(['ffmpeg']);
       await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
     }
 

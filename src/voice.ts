@@ -1,14 +1,19 @@
 import { execFile } from 'node:child_process';
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { CakeSettings } from './types.js';
 
 let DATA_DIR = '';
+const WHISPER_LOCAL = resolve('whisper.cpp/build/bin/whisper-cli');
 
 export function initVoice(dataDir: string): void {
   DATA_DIR = dataDir;
+}
+
+function whisperBin(): string {
+  return existsSync(WHISPER_LOCAL) ? WHISPER_LOCAL : 'whisper-cli';
 }
 
 function tmpPath(ext: string): string {
@@ -43,7 +48,7 @@ export async function transcribeAudio(
     }
 
     const outPrefix = wavFile.replace(/\.[^.]+$/, '');
-    await execAsync('whisper-cli', ['-m', modelPath, '-f', wavFile, '-oj', '-of', outPrefix, '-np']);
+    await execAsync(whisperBin(), ['-m', modelPath, '-f', wavFile, '-oj', '-of', outPrefix, '-np']);
 
     const jsonFile = outPrefix + '.json';
     if (existsSync(jsonFile)) {
@@ -126,7 +131,7 @@ export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; mi
   let tts = false;
 
   try {
-    await execAsync('whisper-cli', ['-h']);
+    await execAsync(whisperBin(), ['-h']);
     stt = true;
   } catch { missing.push('whisper-cli (install whisper.cpp for STT)'); }
 
