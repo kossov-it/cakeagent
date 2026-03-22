@@ -14,9 +14,15 @@ SERVICE_NAME="cakeagent"
 if [ "${1:-}" = "update" ]; then
   echo "🍰 Updating CakeAgent..."
   cd "$INSTALL_DIR"
+  BEFORE=$(sudo -u "$SERVICE_USER" git rev-parse HEAD)
   sudo -u "$SERVICE_USER" git pull
+  AFTER=$(sudo -u "$SERVICE_USER" git rev-parse HEAD)
   NODE_DIR=$(dirname "$(command -v node)")
-  sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"
+  if [ "$BEFORE" != "$AFTER" ]; then
+    sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"
+  else
+    echo "   No changes."
+  fi
   # Refresh sudoers
   SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
   cat <<SUDOERS > "$SUDOERS_FILE"
@@ -31,8 +37,12 @@ SUDOERS
       -e "/\[Service\]/a Environment=PATH=${NODE_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
       "$INSTALL_DIR/cakeagent.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
   systemctl daemon-reload
-  systemctl restart "$SERVICE_NAME"
-  echo "✅ Updated and restarted."
+  if [ "$BEFORE" != "$AFTER" ]; then
+    systemctl restart "$SERVICE_NAME"
+    echo "✅ Updated and restarted."
+  else
+    echo "✅ Config refreshed. No restart needed."
+  fi
   exit 0
 fi
 
