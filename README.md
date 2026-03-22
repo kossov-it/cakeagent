@@ -206,7 +206,8 @@ No API keys for voice. STT and TTS run entirely on your server. Enable via `/set
 | **Dedicated system user** | `cakeagent` user with nologin shell, isolated from your account |
 | **Chat ID + sender allowlist** | Only configured chats and senders trigger the agent |
 | **`acceptEdits` permissions** | File ops allowed, Bash gated by validation hooks |
-| **PreToolUse Bash validator** | Blocks shell injection, reverse shells, pipe-to-sh |
+| **PreToolUse Bash validator** | Blocks shell injection, reverse shells, pipe-to-sh, secret reads |
+| **Read guard** | Blocks Read tool access to .env, .ssh/, credentials/, SSH keys |
 | **Protected CLAUDE.md** | Agent cannot modify its own instructions |
 | **Sanitized memory** | Injection patterns stripped from memory writes |
 | **Persistent rate limiting** | SQLite-backed, survives restarts |

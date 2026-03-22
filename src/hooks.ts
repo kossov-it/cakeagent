@@ -18,6 +18,15 @@ const BASH_DENY = [
   /\bmkfifo\b/,                        // named pipe (often reverse shell)
   /\bpython[23]?\s+-c\s/,             // inline python execution
   /\bperl\s+-e\s/,                     // inline perl
+  /\bcat\b.*\.(env|pem)\b/,           // read secrets via cat
+  /\bcat\b.*\/etc\/(shadow|passwd)/,   // read system auth files
+  /\bcat\b.*id_rsa/,                   // read SSH keys
+  /\bcat\b.*\.ssh\//,                  // read SSH directory
+  /\bsed\b.*\.env/,                    // modify .env via sed
+  /\bsystemctl\b.*sshd/,              // modify SSH service
+  /\bpasswd\b/,                        // change passwords
+  /\busermod\b/,                       // modify users
+  /\bchmod\b.*\.ssh/,                  // change SSH permissions
 ];
 
 // Protected file paths — agent must not modify these
@@ -64,7 +73,32 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
           };
         }],
       },
-      // 2. Memory / protected file guard
+      // 2. Block reading sensitive files
+      {
+        matcher: '^Read$',
+        hooks: [async (input: any) => {
+          const filePath: string = input.tool_input?.file_path ?? '';
+          const SENSITIVE = [/\.env$/, /\.ssh\//, /credentials\//, /\/etc\/shadow/, /\/etc\/passwd/, /id_rsa/, /\.pem$/];
+          const blocked = SENSITIVE.find(p => p.test(filePath));
+          if (blocked) {
+            logAudit('read_denied', filePath);
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: 'Sensitive file — access blocked',
+              },
+            };
+          }
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+            },
+          };
+        }],
+      },
+      // 3. Block writing to protected files
       {
         matcher: '^(Write|Edit)$',
         hooks: [async (input: any) => {
