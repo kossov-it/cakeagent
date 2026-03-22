@@ -55,6 +55,16 @@ const BASH_DENY = [
   /\bchown\b.*\.(ssh|env|pem)/,
   /\biptables\b/,
   /\bnft\b/,
+
+  // Source code protection — block bash writes to project files
+  />\s*\S*\/src\//,                    // redirect to src/
+  />\s*\S*\/channels\//,              // redirect to channels/
+  />\s*\S*\/dist\//,                  // redirect to dist/
+  /\bsed\s+-i\b.*\/(src|channels|dist)\//,  // in-place edit of source
+  /\btee\b.*\/(src|channels|dist)\//,       // tee to source
+  /\bcp\b.*\/(src|channels|dist)\//,        // copy over source
+  /\bmv\b.*\/(src|channels|dist)\//,        // move over source
+  /\bnpm\s+run\s+build\b/,           // block recompiling (only /update should build)
 ];
 
 // Protected file paths — agent must not modify these
