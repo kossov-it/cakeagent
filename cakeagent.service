@@ -9,7 +9,7 @@ User=cakeagent
 Group=cakeagent
 WorkingDirectory=/opt/cakeagent
 ExecStart=/usr/bin/node dist/src/index.js
-Restart=on-failure
+Restart=always
 RestartSec=10
 
 # Environment

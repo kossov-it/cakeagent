@@ -153,13 +153,27 @@ echo "   ✅ .env written (chmod 600)"
 echo ""
 echo "4️⃣  Installing dependencies..."
 npm install
+npm i edge-tts 2>/dev/null || true
 npm run build
 echo "   ✅ Built successfully"
 
 mkdir -p data groups/main
 
 echo ""
-echo "5️⃣  Install as systemd service?"
+echo "5️⃣  Voice dependencies (optional)..."
+if command -v ffmpeg &>/dev/null; then
+  echo "   ✅ ffmpeg found"
+else
+  echo "   ffmpeg is needed for voice messages."
+  read -rp "   Install ffmpeg? [Y/n]: " INSTALL_FFMPEG
+  INSTALL_FFMPEG_LOWER=$(echo "$INSTALL_FFMPEG" | tr '[:upper:]' '[:lower:]')
+  if [ "$INSTALL_FFMPEG_LOWER" != "n" ]; then
+    sudo apt-get install -y ffmpeg 2>/dev/null || sudo dnf install -y ffmpeg 2>/dev/null || echo "   ⚠️  Could not install ffmpeg. Install manually."
+  fi
+fi
+
+echo ""
+echo "6️⃣  Install as systemd service?"
 read -rp "   Install service? [Y/n]: " INSTALL_SERVICE
 INSTALL_SERVICE_LOWER=$(echo "$INSTALL_SERVICE" | tr '[:upper:]' '[:lower:]')
 

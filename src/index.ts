@@ -71,6 +71,7 @@ telegram.setCommands([
   { command: 'status', description: 'Show bot status' },
   { command: 'settings', description: 'Open settings menu' },
   { command: 'reset', description: 'Reset conversation session' },
+  { command: 'restart', description: 'Restart the bot' },
   { command: 'help', description: 'Show available commands' },
 ]);
 
@@ -125,10 +126,13 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId, 'Session reset.');
       return true;
     }
+    case 'restart':
+      await telegram.send(chatId, 'Restarting...');
+      setTimeout(() => process.exit(0), 500);
+      return true;
     case 'help':
       await telegram.send(chatId,
-        '*Commands:*\n/status — Bot status\n/settings — Settings menu\n/reset — Reset session\n/help — This message\n\n' +
-        'Everything else goes to the agent.'
+        '/status — Bot status\n/settings — Settings menu\n/reset — Reset session\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
       );
       return true;
     default:
