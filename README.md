@@ -1,6 +1,6 @@
 # 🍰 CakeAgent
 
-**A personal AI agent in 1,600 lines of code.**
+**A personal AI agent in 1,750 lines of code.**
 
 CakeAgent runs Claude as a full agent on your server — with tool use, web search, code execution, file access, scheduling, and voice — all through Telegram. It extends itself through the MCP ecosystem: thousands of ready-made integrations, discoverable and installable via chat.
 
@@ -16,19 +16,19 @@ Users report spending more time configuring these tools than actually using them
 
 CakeAgent takes the opposite approach: **do almost nothing yourself, and let the ecosystem do the rest.**
 
-The core is a thin orchestrator (~1,700 LOC) that connects Telegram to the Claude Agent SDK. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Thousands of ready-made tool servers, discoverable and installable via chat. No custom plugin system, no marketplace, no trust assumptions — just the open standard.
+The core is a thin orchestrator (1,750 LOC) that connects Telegram to the Claude Agent SDK. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Thousands of ready-made tool servers, discoverable and installable via chat. No custom plugin system, no marketplace, no trust assumptions — just the open standard.
 
 ### How it compares
 
 | | CakeAgent | Popular AI assistants |
 |---|---|---|
-| **Code** | ~1,700 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Code** | 1,750 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct, hundreds transitive |
 | **Network surface** | 0 listeners (outbound only) | WebSocket on 0.0.0.0, HTTP API |
-| **Telegram** | 200 LOC raw `fetch()` | grammY/Telegraf framework + adapter |
+| **Telegram** | 220 LOC raw `fetch()` | grammY/Telegraf framework + adapter |
 | **Tool ecosystem** | MCP open standard — install via chat | Custom plugin marketplace (7% malicious) |
 | **Security** | Dedicated user, systemd sandbox, Bash hooks | Plaintext credentials, no auth by default |
-| **Startup** | <1s, ~12MB memory | 75–85% CPU, 3MB bundle, 1000+ imports |
+| **Startup** | Sub-second | 75–85% CPU, 3MB bundle, 1000+ imports |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ### Key design decisions
@@ -83,15 +83,15 @@ sudo bash setup.sh uninstall
 ## Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌────────────────┐
-│  Telegram    │────▶│  Orchestrator │────▶│  Claude Agent   │
-│  (raw fetch) │◀────│  (index.ts)   │◀────│  SDK query()    │
-└─────────────┘     └──────┬───────┘     └───────┬────────┘
-                           │                      │
-                    ┌──────┴───────┐       ┌──────┴────────┐
-                    │   SQLite     │       │  MCP Tools     │
-                    │  (store.ts)  │       │  (in-process)  │
-                    └──────────────┘       └───────────────┘
+┌──────────────┐     ┌───────────────┐     ┌──────────────┐
+│   Telegram   │────▶│  Orchestrator │────▶│ Claude Agent  │
+│  (raw fetch) │◀────│  (index.ts)   │◀────│ SDK query()   │
+└──────────────┘     └───────┬───────┘     └──────┬───────┘
+                             │                    │
+                      ┌──────┴──────┐      ┌──────┴──────┐
+                      │   SQLite    │      │  MCP Tools  │
+                      │ (store.ts)  │      │ (in-process)│
+                      └─────────────┘      └─────────────┘
 ```
 
 ### Files
@@ -99,16 +99,16 @@ sudo bash setup.sh uninstall
 ```
 /opt/cakeagent/
 ├── src/
-│   ├── index.ts        Orchestrator: routing, scheduler, shutdown
-│   ├── agent.ts        Claude Agent SDK wrapper
-│   ├── tools.ts        In-process MCP server (16 tools)
-│   ├── hooks.ts        Security hooks + conversation archival
-│   ├── store.ts        SQLite: messages, schedules, groups, audit
-│   ├── voice.ts        Local Whisper STT + Edge TTS
-│   ├── config.ts       .env parser
-│   └── types.ts        Type definitions
+│   ├── index.ts      422  Orchestrator: routing, scheduler, shutdown
+│   ├── tools.ts      309  In-process MCP server (16 tools)
+│   ├── store.ts      218  SQLite: messages, schedules, groups, audit
+│   ├── voice.ts      151  Local Whisper STT + Edge TTS
+│   ├── hooks.ts      147  Security hooks + conversation archival
+│   ├── types.ts      141  Type definitions
+│   ├── agent.ts       91  Claude Agent SDK wrapper
+│   └── config.ts      51  .env parser
 ├── channels/
-│   └── telegram.ts     Raw fetch adapter
+│   └── telegram.ts   220  Raw fetch adapter
 ├── groups/main/
 │   └── CLAUDE.md       Agent identity + rules
 ├── data/
