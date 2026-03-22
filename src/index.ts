@@ -471,17 +471,19 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
 
   if (result && result.trim() !== lastSentText) {
+    let voiceSent = false;
     if (currentSettings.voice) {
-      const audio = await synthesizeSpeech(result, currentSettings);
-      if (audio) {
-        await telegram.sendVoice(msg.chatId, audio);
-        await telegram.send(msg.chatId, result);
-      } else {
-        await telegram.send(msg.chatId, result);
+      try {
+        const audio = await synthesizeSpeech(result, currentSettings);
+        if (audio) {
+          await telegram.sendVoice(msg.chatId, audio);
+          voiceSent = true;
+        }
+      } catch (err) {
+        console.error('[voice] TTS send failed:', (err as Error).message);
       }
-    } else {
-      await telegram.send(msg.chatId, result);
     }
+    await telegram.send(msg.chatId, result);
   }
   if (result) store.saveOutgoing(msg.chatId, result, Date.now());
 
