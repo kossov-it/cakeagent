@@ -103,7 +103,7 @@ function handleSettingsCallback(data: string, settings: CakeSettings): CakeSetti
   const [key, val] = data.split(':');
   if (key === 'model' && VALID_MODELS.has(val)) settings.model = val;
   else if (key === 'thinking' && VALID_THINKING.has(val)) settings.thinkingLevel = val;
-  else if (key === 'voice') settings.voiceEnabled = !settings.voiceEnabled;
+  else if (key === 'voice') settings.voiceReceive = !settings.voiceReceive;
   else if (key === 'voiceReply') settings.voiceReply = !settings.voiceReply;
   store.saveSettings(settings);
   return settings;
@@ -123,7 +123,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId,
         `*cakeagent*\nModel: \`${s.model}\`\nThinking: \`${s.thinkingLevel}\`\n` +
         `Groups: ${groups.length}\nActive tasks: ${tasks.filter(t => t.status === 'active').length}/${tasks.length}\n` +
-        `Voice: ${s.voiceEnabled ? 'on' : 'off'}\nUptime: ${uptime} min`
+        `Voice in: ${s.voiceReceive ? 'on' : 'off'} | Voice reply: ${s.voiceReply ? 'on' : 'off'}\nUptime: ${uptime} min`
       );
       return true;
     }
@@ -294,7 +294,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     return;
   }
 
-  if (msg.voiceFileId && currentSettings.voiceEnabled) {
+  if (msg.voiceFileId && currentSettings.voiceReceive) {
     try {
       const audioBuffer = await telegram.downloadFile(msg.voiceFileId);
       const transcript = await transcribeAudio(audioBuffer, currentSettings);

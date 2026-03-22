@@ -93,7 +93,7 @@ export interface CakeSettings {
   triggerPattern: string;
   model: string;
   thinkingLevel: string;
-  voiceEnabled: boolean;
+  voiceReceive: boolean;
   voiceReply: boolean;
   voiceSttModel: string;
   voiceTtsVoice: string;
@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   triggerPattern: '@CakeAgent',
   model: 'claude-sonnet-4-6',
   thinkingLevel: 'low',
-  voiceEnabled: false,
+  voiceReceive: false,
   voiceReply: false,
   voiceSttModel: 'base',
   voiceTtsVoice: 'en-US-AriaNeural',

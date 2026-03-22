@@ -214,7 +214,7 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         'update_settings',
         'Update a cakeagent setting. Changes take effect on the next agent invocation.',
         {
-          key: z.string().describe('Setting key (e.g., "model", "assistantName", "triggerPattern", "voiceEnabled")'),
+          key: z.string().describe('Setting key (e.g., "model", "assistantName", "triggerPattern", "voiceReceive", "voiceReply")'),
           value: z.string().describe('New value (use "true"/"false" for booleans, numbers as strings)'),
         },
         async (args) => {
