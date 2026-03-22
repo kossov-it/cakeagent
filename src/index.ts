@@ -306,10 +306,13 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     }
   }
 
-  const since = lastProcessed.get(msg.chatId) ?? (Date.now() - 30 * 60_000);
+  const since = lastProcessed.get(msg.chatId) ?? (msg.timestamp - 30 * 60_000);
   const recent = store.getMessagesSince(msg.chatId, since, 50);
+  if (recent.length === 0) {
+    // Fallback: use the current message directly if DB query returned nothing
+    recent.push({ sender_name: msg.senderName, content: msg.text ?? '', timestamp: msg.timestamp });
+  }
   const messagesXml = formatPrompt(recent);
-  if (!messagesXml.trim()) return;
 
   let prompt = messagesXml;
   if (existsSync(memPath)) {
@@ -358,7 +361,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
 
   if (newSessionId) store.setSession(groupFolder, newSessionId);
-  lastProcessed.set(msg.chatId, Date.now());
+  lastProcessed.set(msg.chatId, msg.timestamp);
   messagesProcessed++;
   } finally {
     telegram.stopTyping();
