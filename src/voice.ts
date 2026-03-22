@@ -7,7 +7,7 @@ import type { CakeSettings } from './types.js';
 
 let DATA_DIR = '';
 const WHISPER_LOCAL = resolve('whisper.cpp/build/bin/whisper-cli');
-const EDGE_TTS_LOCAL = '/opt/cakeagent/.local/bin/edge-tts';
+const EDGE_TTS_LOCAL = join(process.env.HOME ?? '/opt/cakeagent', '.local', 'bin', 'edge-tts');
 
 export function initVoice(dataDir: string): void {
   DATA_DIR = dataDir;
@@ -83,14 +83,12 @@ export async function synthesizeSpeech(
   try {
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
     const bin = edgeTtsBin();
-    console.log(`[voice] TTS: ${bin} --voice ${voice} --write-media ${mp3File}`);
     await execAsync(bin, ['--voice', voice, '--text', text, '--write-media', mp3File]);
 
     if (!existsSync(mp3File)) {
       console.warn('[voice] edge-tts produced no output');
       return null;
     }
-    console.log(`[voice] TTS: mp3 generated (${readFileSync(mp3File).length} bytes)`);
 
     await execAsync('ffmpeg', ['-i', mp3File, '-c:a', 'libopus', '-b:a', '48k', '-y', oggFile]);
     return existsSync(oggFile) ? readFileSync(oggFile) : readFileSync(mp3File);

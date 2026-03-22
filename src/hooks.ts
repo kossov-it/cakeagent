@@ -206,39 +206,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
         }],
       },
     ],
-    PostToolUse: [
-      {
-        matcher: '^mcp__cakeagent__',
-        hooks: [async (input: any) => {
-          const toolName: string = input.tool_name ?? '';
-          const toolInput = input.tool_input ?? {};
-
-          if (toolName === 'mcp__cakeagent__send_message') {
-            state.pendingMessages.push({ chatId: '', text: toolInput.text ?? '' });
-            return { async: true };
-          }
-
-          if (toolName === 'mcp__cakeagent__schedule_task') {
-            state.pendingSchedules.push({
-              action: 'create',
-              task: {
-                groupFolder: toolInput.groupFolder ?? 'main',
-                chatId: toolInput.chatId ?? '',
-                task: toolInput.task ?? '',
-                scheduleType: toolInput.scheduleType ?? 'once',
-                scheduleValue: toolInput.scheduleValue ?? '',
-                contextMode: toolInput.contextMode ?? 'isolated',
-                nextRun: toolInput.nextRun ?? '',
-                status: 'active',
-              },
-            });
-            return { async: true };
-          }
-
-          return {};
-        }],
-      },
-    ],
+    PostToolUse: [],
     PreCompact: [
       {
         matcher: '.*',

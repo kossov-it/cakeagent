@@ -5,18 +5,29 @@ import type { AgentRunParams, CakeSettings } from './types.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 
+interface HookHandler {
+  matcher: string;
+  hooks: Array<(input: unknown) => Promise<unknown>>;
+}
+
 interface AgentDeps {
   picoServer: ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').createSdkMcpServer>;
-  hooks: Record<string, any>;
+  hooks: Record<string, HookHandler[]>;
   settings: CakeSettings;
   groupsDir: string;
 }
+
+// SDK streaming types don't expose all fields on the discriminated union.
+// These interfaces match the actual runtime shape for the message types we consume.
+interface SdkInitMessage { type: 'system'; subtype: 'init'; session_id?: string }
+interface SdkAssistantMessage { type: 'assistant'; message?: { content?: Array<{ type: string; text?: string }> } }
+interface SdkResultMessage { type: 'result'; result?: string }
 
 export async function runAgent(
   params: AgentRunParams,
   deps: AgentDeps,
   onText?: (text: string) => Promise<void>,
-): Promise<{ sessionId: string; result: string }> {
+): Promise<{ sessionId: string; result: string; timedOut: boolean }> {
   const groupPath = resolve(deps.groupsDir, params.groupFolder);
 
   let externalMcp: Record<string, any> = {};
@@ -30,9 +41,10 @@ export async function runAgent(
   let sessionId = params.sessionId ?? '';
   let result = '';
   let lastStreamedText = '';
+  let timedOut = false;
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), deps.settings.agentTimeoutMs);
+  const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, deps.settings.agentTimeoutMs);
 
   try {
     for await (const message of query({
@@ -63,11 +75,11 @@ export async function runAgent(
       },
     })) {
       if (message.type === 'system' && message.subtype === 'init') {
-        sessionId = (message as any).session_id ?? sessionId;
+        sessionId = (message as unknown as SdkInitMessage).session_id ?? sessionId;
       }
 
       if (message.type === 'assistant' && onText) {
-        const content = (message as any).message?.content;
+        const content = (message as unknown as SdkAssistantMessage).message?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'text' && block.text) {
@@ -82,12 +94,12 @@ export async function runAgent(
       }
 
       if (message.type === 'result') {
-        result = (message as any).result ?? '';
+        result = (message as unknown as SdkResultMessage).result ?? '';
       }
     }
   } finally {
     clearTimeout(timeout);
   }
 
-  return { sessionId, result };
+  return { sessionId, result, timedOut };
 }

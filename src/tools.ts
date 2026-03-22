@@ -12,6 +12,7 @@ const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'do
 function sanitizeMemory(content: string): string {
   const INJECTION_RE = [
     /ignore\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)/i,
+    /disregard\s+(all\s+)?(previous|prior)/i,
     /you\s+are\s+now\s+(a|an)\s+/i,
     /system\s*:\s*(prompt|override|command)/i,
     /\[System\s*Message\]/i,
@@ -30,22 +31,36 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         'Send a message to the user immediately (for progress updates or multi-part responses)',
         { text: z.string().describe('Message text to send') },
         async (args) => {
+          state.pendingMessages.push({ chatId: '', text: args.text });
           return { content: [{ type: 'text' as const, text: `Message queued: "${args.text.slice(0, 50)}..."` }] };
         },
       ),
 
       tool(
         'schedule_task',
-        'Create a scheduled or recurring task. Use cron for recurring, once for one-time reminders.',
+        'Create a scheduled or recurring task. Use interval for recurring, once for one-time reminders.',
         {
           task: z.string().describe('What the agent should do when the task fires'),
-          scheduleType: z.enum(['cron', 'interval', 'once']).describe('Type of schedule'),
-          scheduleValue: z.string().describe('Cron expression, interval in ms, or ISO timestamp'),
+          scheduleType: z.enum(['interval', 'once']).describe('Type of schedule'),
+          scheduleValue: z.string().describe('Interval in ms, or ISO timestamp for once'),
           nextRun: z.string().describe('ISO 8601 timestamp of the next execution'),
           contextMode: z.enum(['group', 'isolated']).default('isolated')
             .describe('group = run with chat history, isolated = fresh session'),
         },
         async (args) => {
+          state.pendingSchedules.push({
+            action: 'create',
+            task: {
+              groupFolder: '',
+              chatId: '',
+              task: args.task,
+              scheduleType: args.scheduleType,
+              scheduleValue: args.scheduleValue,
+              contextMode: args.contextMode,
+              nextRun: args.nextRun,
+              status: 'active',
+            },
+          });
           return { content: [{ type: 'text' as const, text: `Task scheduled: "${args.task.slice(0, 80)}" — next run: ${args.nextRun}` }] };
         },
       ),
@@ -138,9 +153,10 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             return { content: [{ type: 'text' as const, text: `Denied: argument "${dangerousArg}" matches a dangerous pattern.` }] };
           }
 
-          let mcpConfig: any = { mcpServers: {} };
+          interface McpConfig { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }
+          let mcpConfig: McpConfig = { mcpServers: {} };
           if (existsSync(MCP_JSON_PATH)) {
-            try { mcpConfig = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8')); } catch { /* start fresh */ }
+            try { mcpConfig = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8')) as McpConfig; } catch { /* start fresh */ }
           }
           mcpConfig.mcpServers ??= {};
           mcpConfig.mcpServers[toolArgs.name] = {
@@ -208,7 +224,7 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         'update_settings',
         'Update a cakeagent setting. Changes take effect on the next agent invocation.',
         {
-          key: z.string().describe('Setting key (e.g., "model", "assistantName", "triggerPattern", "voice")'),
+          key: z.string().describe('Setting key (e.g., "model", "assistantName", "triggerPattern", "voiceReceive", "voiceSend")'),
           value: z.string().describe('New value (use "true"/"false" for booleans, numbers as strings)'),
         },
         async (args) => {

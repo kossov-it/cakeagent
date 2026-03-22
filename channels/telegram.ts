@@ -58,7 +58,7 @@ function markdownToHtml(text: string): string {
 
   return result
     .replace(/&(?!amp;|lt;|gt;)/g, '&amp;')
-    .replace(/<(?!\/?(?:b|i|u|s|pre|code)[ >])/g, '&lt;')
+    .replace(/<(?!\/?(?:b|i|u|s|pre|code)\s*>)/g, '&lt;')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\*(.+?)\*/g, '<i>$1</i>')
     .replace(/__(.+?)__/g, '<u>$1</u>')
@@ -85,7 +85,8 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
         btn(mark(isThink('high'), 'High'), 'thinking:high'),
       ],
       [
-        btn(mark(settings.voice, 'Voice'), 'voice:toggle'),
+        btn(mark(settings.voiceReceive, 'Voice In'), 'voiceReceive:toggle'),
+        btn(mark(settings.voiceSend, 'Voice Out'), 'voiceSend:toggle'),
       ],
     ],
   };
@@ -192,10 +193,16 @@ export function createTelegramChannel(
     },
 
     async downloadFile(fileId: string): Promise<Buffer> {
+      const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB — Telegram bot limit
       const file = await tg(token, 'getFile', { file_id: fileId });
       const url = `https://api.telegram.org/file/bot${token}/${file.file_path}`;
       const res = await fetch(url);
-      return Buffer.from(await res.arrayBuffer());
+      if (!res.ok) throw new Error(`File download failed: HTTP ${res.status}`);
+      const contentLength = Number(res.headers.get('content-length') || 0);
+      if (contentLength > MAX_FILE_SIZE) throw new Error(`File too large: ${contentLength} bytes`);
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.length > MAX_FILE_SIZE) throw new Error(`File too large: ${buf.length} bytes`);
+      return buf;
     },
 
     async sendSettingsKeyboard(chatId: string, settings: CakeSettings): Promise<number> {

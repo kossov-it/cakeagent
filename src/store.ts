@@ -197,6 +197,12 @@ export function loadSettings(): CakeSettings {
   }
   try {
     const raw = JSON.parse(readFileSync(path, 'utf-8'));
+    // Migrate legacy single `voice` toggle → split toggles
+    if ('voice' in raw && !('voiceReceive' in raw)) {
+      raw.voiceReceive = raw.voice;
+      raw.voiceSend = raw.voice;
+      delete raw.voice;
+    }
     return { ...DEFAULT_SETTINGS, ...raw };
   } catch {
     return { ...DEFAULT_SETTINGS };
@@ -212,8 +218,13 @@ export function saveSettings(settings: CakeSettings): void {
 export function pruneOldData(retentionDays = 30): void {
   const cutoff = Date.now() - retentionDays * 24 * 60 * 60_000;
   db.prepare(`DELETE FROM messages WHERE timestamp < ?`).run(cutoff);
-  db.prepare(`DELETE FROM audit_log WHERE created_at < datetime('now', '-30 days')`).run();
-  db.prepare(`DELETE FROM rate_limits WHERE window_start < ?`).run(Date.now() - 7 * 24 * 60 * 60_000);
+  db.prepare(`DELETE FROM audit_log WHERE created_at < datetime('now', ? || ' days')`).run(-retentionDays);
+  db.prepare(`DELETE FROM rate_limits WHERE window_start < ?`).run(cutoff);
+}
+
+export function countActiveSchedules(): number {
+  const row = db.prepare(`SELECT COUNT(*) as count FROM schedules WHERE status = 'active'`).get() as { count: number };
+  return row.count;
 }
 
 // --- Key-Value ---

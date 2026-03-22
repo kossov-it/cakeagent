@@ -66,7 +66,7 @@ export interface ScheduledTask {
   groupFolder: string;
   chatId: string;
   task: string;
-  scheduleType: 'cron' | 'interval' | 'once';
+  scheduleType: 'interval' | 'once';
   scheduleValue: string;
   contextMode: 'group' | 'isolated';
   nextRun: string;
@@ -93,7 +93,8 @@ export interface CakeSettings {
   triggerPattern: string;
   model: string;
   thinkingLevel: string;
-  voice: boolean;
+  voiceReceive: boolean;
+  voiceSend: boolean;
   voiceSttModel: string;
   voiceTtsVoice: string;
   allowedSenders: string[];
@@ -107,7 +108,8 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   triggerPattern: '@CakeAgent',
   model: 'claude-sonnet-4-6',
   thinkingLevel: 'low',
-  voice: false,
+  voiceReceive: false,
+  voiceSend: false,
   voiceSttModel: 'base',
   voiceTtsVoice: 'en-US-AriaNeural',
   allowedSenders: [],
