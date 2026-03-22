@@ -76,56 +76,33 @@ export async function synthesizeSpeech(
   const oggFile = tmpPath('ogg');
 
   try {
+    // edge-tts v1.0.1 API: ttsSave(text, file, { voice }) → Promise<void>
     let mod: any = null;
     for (const p of ['edge-tts', 'edge-tts/out/index.js'] as string[]) {
       try { mod = await import(p); } catch { /* try next */ }
       if (mod) break;
     }
     if (!mod) {
-      console.warn('[voice] edge-tts not installed. Run: cd /opt/cakeagent && npm i edge-tts');
+      console.warn('[voice] edge-tts not installed');
+      return null;
+    }
+
+    const m = mod.default ?? mod;
+    if (typeof m.ttsSave !== 'function') {
+      console.warn('[voice] edge-tts: ttsSave not found — unexpected package version');
       return null;
     }
 
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
-    const ttsOpts = { voice };
+    await m.ttsSave(text, mp3File, { voice });
 
-    let mp3Written = false;
-    // edge-tts v1.x API: ttsSave(text, file, opts) or tts(text, opts) → Buffer
-    if (!mp3Written && typeof mod.ttsSave === 'function') {
-      await mod.ttsSave(text, mp3File, ttsOpts);
-      mp3Written = existsSync(mp3File);
-    }
-    if (!mp3Written && typeof mod.tts === 'function') {
-      const buf = await mod.tts(text, ttsOpts);
-      if (buf && buf.length > 0) { writeFileSync(mp3File, buf); mp3Written = true; }
-    }
-    // Older API variants
-    if (!mp3Written && mod.EdgeTTS) {
-      const tts = new mod.EdgeTTS();
-      await tts.synthesize(text, voice, { outputFile: mp3File });
-      mp3Written = existsSync(mp3File);
-    }
-    if (!mp3Written && mod.default?.EdgeTTS) {
-      const tts = new mod.default.EdgeTTS();
-      await tts.synthesize(text, voice, { outputFile: mp3File });
-      mp3Written = existsSync(mp3File);
-    }
-    if (!mp3Written && typeof mod.synthesize === 'function') {
-      await mod.synthesize(text, { voice, outputFile: mp3File });
-      mp3Written = existsSync(mp3File);
-    }
-    if (!mp3Written) {
-      console.warn('[voice] edge-tts: synthesis failed — check package version');
+    if (!existsSync(mp3File)) {
+      console.warn('[voice] edge-tts: ttsSave produced no output');
       return null;
     }
 
     await execAsync('ffmpeg', ['-i', mp3File, '-c:a', 'libopus', '-b:a', '48k', '-y', oggFile]);
-
-    if (existsSync(oggFile)) {
-      return readFileSync(oggFile);
-    }
-
-    return readFileSync(mp3File);
+    return existsSync(oggFile) ? readFileSync(oggFile) : readFileSync(mp3File);
   } catch (err) {
     console.error('[voice] TTS failed:', (err as Error).message);
     return null;
