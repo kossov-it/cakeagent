@@ -1,10 +1,11 @@
 import type { Channel, TelegramUpdate, BotCommand, CakeSettings } from '../src/types.js';
 
-async function tg(token: string, method: string, body?: unknown, retries = 0): Promise<any> {
+async function tg(token: string, method: string, body?: unknown, retries = 0, signal?: AbortSignal): Promise<any> {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
   const json = await res.json() as { ok: boolean; result?: any; description?: string; parameters?: { retry_after?: number } };
   if (!json.ok) {
@@ -45,19 +46,16 @@ function chunkText(text: string, maxLen = 4096): string[] {
 }
 
 function markdownToHtml(text: string): string {
-  // Code blocks first (before inline code eats the backticks)
   let result = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_m, code) => {
     const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').trimEnd();
     return `<pre>${escaped}</pre>`;
   });
 
-  // Inline code (skip already-processed <pre> blocks)
   result = result.replace(/`([^`]+)`/g, (_m, code) => {
     const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return `<code>${escaped}</code>`;
   });
 
-  // Remaining markdown outside code blocks
   return result
     .replace(/&(?!amp;|lt;|gt;)/g, '&amp;')
     .replace(/<(?!\/?(?:b|i|u|s|pre|code)[ >])/g, '&lt;')
@@ -97,8 +95,9 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
 export function createTelegramChannel(
   token: string,
   allowedChatIds: () => Set<string>,
+  persistOffset?: { load: () => number; save: (offset: number) => void },
 ): Channel {
-  let offset = 0;
+  let offset = persistOffset?.load() ?? 0;
   let typingInterval: ReturnType<typeof setInterval> | null = null;
 
   return {
@@ -111,10 +110,11 @@ export function createTelegramChannel(
             offset,
             timeout: 30,
             allowed_updates: ['message', 'callback_query'],
-          });
+          }, 0, signal);
 
           for (const u of updates) {
             offset = u.update_id + 1;
+            persistOffset?.save(offset);
 
             if (u.callback_query) {
               const cq = u.callback_query;

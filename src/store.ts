@@ -64,6 +64,11 @@ export function initDb(dir: string): void {
       detail TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS kv (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
   `);
 }
 
@@ -148,7 +153,7 @@ export function updateSchedule(id: number, fields: Partial<ScheduledTask>): void
   const vals: unknown[] = [];
   for (const [k, v] of Object.entries(fields)) {
     const col = SCHEDULE_COLUMNS[k];
-    if (!col) continue; // Skip unknown fields — prevents SQL injection
+    if (!col) continue;
     sets.push(`${col} = ?`);
     vals.push(v);
   }
@@ -209,6 +214,17 @@ export function pruneOldData(retentionDays = 30): void {
   db.prepare(`DELETE FROM messages WHERE timestamp < ?`).run(cutoff);
   db.prepare(`DELETE FROM audit_log WHERE created_at < datetime('now', '-30 days')`).run();
   db.prepare(`DELETE FROM rate_limits WHERE window_start < ?`).run(Date.now() - 7 * 24 * 60 * 60_000);
+}
+
+// --- Key-Value ---
+
+export function getKv(key: string): string | null {
+  const row = db.prepare(`SELECT value FROM kv WHERE key = ?`).get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setKv(key: string, value: string): void {
+  db.prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`).run(key, value);
 }
 
 // --- Cleanup ---

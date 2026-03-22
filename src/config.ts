@@ -13,10 +13,8 @@ export function loadConfig(): Config {
       const eq = trimmed.indexOf('=');
       if (eq === -1) continue;
       let key = trimmed.slice(0, eq).trim();
-      // Strip `export` prefix (common in shell-sourced .env files)
       if (key.startsWith('export ')) key = key.slice(7).trim();
       let val = trimmed.slice(eq + 1).trim();
-      // Strip inline comments (but not inside quotes)
       if (!val.startsWith('"') && !val.startsWith("'")) {
         const commentIdx = val.indexOf(' #');
         if (commentIdx > 0) val = val.slice(0, commentIdx).trim();
@@ -28,7 +26,6 @@ export function loadConfig(): Config {
     }
   }
 
-  // Merge with process.env (process.env takes precedence)
   const get = (key: string): string | undefined => process.env[key] || env[key];
 
   const token = get('TELEGRAM_BOT_TOKEN');

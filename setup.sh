@@ -26,7 +26,7 @@ if [ "${1:-}" = "update" ]; then
   # Refresh sudoers
   SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
   cat <<SUDOERS > "$SUDOERS_FILE"
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/curl, /usr/bin/env, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
@@ -151,8 +151,8 @@ echo "5️⃣  Configuring agent permissions..."
 SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
 cat <<SUDOERS | sudo tee "$SUDOERS_FILE" > /dev/null
 $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/bash $INSTALL_DIR/setup.sh *
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/curl
 Defaults:$SERVICE_USER !requiretty
+Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
 sudo chmod 440 "$SUDOERS_FILE"
 echo "   ✅ Agent can install system packages"

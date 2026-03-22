@@ -3,41 +3,33 @@ import * as store from './store.js';
 import { createTools } from './tools.js';
 import { createHooks } from './hooks.js';
 import { runAgent } from './agent.js';
-import { transcribeAudio, synthesizeSpeech, checkVoiceDeps } from './voice.js';
+import { initVoice, transcribeAudio, synthesizeSpeech, checkVoiceDeps } from './voice.js';
 import { createTelegramChannel } from '../channels/telegram.js';
 import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync } from 'node:fs';
+import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage } from './types.js';
 
-// --- Startup ---
-
 const config = loadConfig();
 store.initDb(config.dataDir);
+initVoice(config.dataDir);
 
 const settings = store.loadSettings();
 const groupsDir = resolve(config.groupsDir);
 
-// Ensure main group exists
 const mainDir = join(groupsDir, 'main');
 mkdirSync(mainDir, { recursive: true });
 
-// Default CLAUDE.md written in Phase 7 — create minimal one if missing
 if (!existsSync(join(mainDir, 'CLAUDE.md'))) {
   writeFileSync(join(mainDir, 'CLAUDE.md'), `# ${settings.assistantName}\n\nYou are a personal AI assistant. Be concise and helpful.\n`);
 }
 
-// Default memory file
 const memPath = join(config.dataDir, 'memory.md');
 if (!existsSync(memPath)) writeFileSync(memPath, '');
 
-// Shared state for hook-based IPC
 const state: SharedState = { pendingMessages: [], pendingSchedules: [] };
-
-// Build components
 const picoServer = createTools(state, config.dataDir, groupsDir);
 const hooks = createHooks(state, groupsDir);
-
-// --- Startup security checks ---
 
 const envPath = resolve('.env');
 if (existsSync(envPath)) {
@@ -58,15 +50,28 @@ if (existsSync(gitignorePath)) {
   }
 }
 
-// Telegram channel — allowedChatIds includes main + registered groups
 const allowedChatIds = () => {
   const ids = new Set([config.telegramChatId]);
   for (const g of store.getGroups()) ids.add(g.chatId);
   return ids;
 };
-const telegram = createTelegramChannel(config.telegramBotToken, allowedChatIds);
+const telegram = createTelegramChannel(config.telegramBotToken, allowedChatIds, {
+  load: () => Number(store.getKv('tg_offset') ?? '0'),
+  save: (o) => store.setKv('tg_offset', String(o)),
+});
 
-function refreshBotCommands() {
+let lastMcpMtime = 0;
+
+function refreshBotCommands(force = false) {
+  const mcpPath = resolve('.mcp.json');
+  try {
+    if (!force && existsSync(mcpPath)) {
+      const mtime = statSync(mcpPath).mtimeMs;
+      if (mtime === lastMcpMtime) return;
+      lastMcpMtime = mtime;
+    }
+  } catch { /* ignore */ }
+
   const commands = [
     { command: 'status', description: 'Show bot status' },
     { command: 'settings', description: 'Open settings menu' },
@@ -76,7 +81,6 @@ function refreshBotCommands() {
     { command: 'help', description: 'Show available commands' },
   ];
   try {
-    const mcpPath = resolve('.mcp.json');
     if (existsSync(mcpPath)) {
       const mcpConfig = JSON.parse(readFileSync(mcpPath, 'utf-8'));
       for (const name of Object.keys(mcpConfig.mcpServers ?? {})) {
@@ -86,7 +90,7 @@ function refreshBotCommands() {
   } catch { /* ignore */ }
   telegram.setCommands(commands);
 }
-refreshBotCommands();
+refreshBotCommands(true);
 
 const startTime = Date.now();
 console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.telegramChatId}`);
@@ -94,8 +98,6 @@ console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.
 checkVoiceDeps().then(({ missing }) => {
   if (missing.length) console.warn('[voice] Missing:', missing.join(', '));
 });
-
-// --- Settings callback handler ---
 
 const VALID_MODELS = new Set(['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001']);
 const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
@@ -110,29 +112,17 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   } else if (key === 'voice') {
     settings.voiceReceive = !settings.voiceReceive;
     if (settings.voiceReceive) {
-      await telegram.send(chatId, 'Installing voice input deps — bot will restart...');
+      await telegram.send(chatId, 'Installing voice input deps — this may take a minute...');
       store.saveSettings(settings);
-      const { execFile } = await import('node:child_process');
-      const modelsDir = join(config.dataDir, 'models');
-      execFile('sudo', ['bash', '-c',
-        `DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg; ` +
-        `mkdir -p ${modelsDir}; ` +
-        `test -f ${join(modelsDir, 'ggml-base.bin')} || curl -L -o ${join(modelsDir, 'ggml-base.bin')} https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin; ` +
-        `systemctl restart cakeagent`
-      ], { timeout: 300_000 }, () => {});
+      installVoiceDeps(chatId, 'stt');
       return settings;
     }
   } else if (key === 'voiceReply') {
     settings.voiceReply = !settings.voiceReply;
     if (settings.voiceReply) {
-      await telegram.send(chatId, 'Installing voice output deps — bot will restart...');
+      await telegram.send(chatId, 'Installing voice output deps — this may take a minute...');
       store.saveSettings(settings);
-      const { execFile } = await import('node:child_process');
-      execFile('sudo', ['bash', '-c',
-        `DEBIAN_FRONTEND=noninteractive apt-get install -y ffmpeg; ` +
-        `cd /opt/cakeagent && npm i edge-tts; ` +
-        `systemctl restart cakeagent`
-      ], { timeout: 300_000 }, () => {});
+      installVoiceDeps(chatId, 'tts');
       return settings;
     }
   }
@@ -141,7 +131,40 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   return settings;
 }
 
-// --- Chat command handler ---
+function runCmd(cmd: string, args: string[], opts?: { env?: NodeJS.ProcessEnv }): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(cmd, args, { timeout: 300_000, ...opts }, (err, stdout, stderr) => {
+      if (err) reject(new Error(stderr || err.message));
+      else resolve(stdout);
+    });
+  });
+}
+
+async function installVoiceDeps(chatId: string, type: 'stt' | 'tts'): Promise<void> {
+  try {
+    await runCmd('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], {
+      env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+    });
+
+    if (type === 'stt') {
+      const modelsDir = join(config.dataDir, 'models');
+      mkdirSync(modelsDir, { recursive: true });
+      const modelPath = join(modelsDir, 'ggml-base.bin');
+      if (!existsSync(modelPath)) {
+        await runCmd('curl', ['-L', '-o', modelPath,
+          'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin']);
+      }
+    } else {
+      await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
+    }
+
+    await telegram.send(chatId, 'Voice deps installed. Restarting...');
+    abortController.abort();
+    setTimeout(() => process.exit(0), 200);
+  } catch (err) {
+    await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 200)}`).catch(() => {});
+  }
+}
 
 async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> {
   const command = cmd.replace(/^\//, '').split(/\s|@/)[0].toLowerCase();
@@ -172,8 +195,9 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
     }
     case 'update': {
       await telegram.send(chatId, 'Updating...');
-      const { execFile } = await import('node:child_process');
-      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, () => {});
+      execFile('sudo', ['bash', '/opt/cakeagent/setup.sh', 'update'], { timeout: 180_000 }, (err, _stdout, stderr) => {
+        if (err) telegram.send(chatId, `Update failed: ${(stderr || err.message).slice(0, 200)}`).catch(() => {});
+      });
       return true;
     }
     case 'restart':
@@ -191,8 +215,6 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
   }
 }
 
-// --- Message routing ---
-
 function resolveGroup(chatId: string): string | null {
   if (chatId === config.telegramChatId) return 'main';
   const group = store.getGroupByChatId(chatId);
@@ -200,9 +222,7 @@ function resolveGroup(chatId: string): string | null {
 }
 
 function shouldTrigger(msg: IncomingMessage, groupFolder: string): boolean {
-  // Main DM — always trigger
   if (groupFolder === 'main') return true;
-  // Groups — check trigger pattern
   const group = store.getGroupByChatId(msg.chatId);
   if (!group) return false;
   const settings = store.loadSettings();
@@ -211,21 +231,16 @@ function shouldTrigger(msg: IncomingMessage, groupFolder: string): boolean {
 }
 
 function formatPrompt(messages: Array<{ sender_name: string; content: string; timestamp: number }>): string {
-  // Reverse to chronological order (DB returns DESC)
   return [...messages].reverse().map(m => {
     const time = new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
     return `<message sender="${m.sender_name}" time="${time}">${m.content}</message>`;
   }).join('\n');
 }
 
-// --- Concurrency guard ---
-// Only one agent invocation at a time (scheduler + main loop share this)
 let agentBusy = false;
 
-// --- Scheduler ---
-
 const schedulerInterval = setInterval(async () => {
-  if (agentBusy) return; // Skip if agent is already running
+  if (agentBusy) return;
   const now = new Date().toISOString();
   const due = store.getDueSchedules(now);
 
@@ -242,14 +257,12 @@ const schedulerInterval = setInterval(async () => {
         { picoServer, hooks, settings: currentSettings, groupsDir },
       );
 
-      // Drain pending messages from the scheduled task
       for (const msg of state.pendingMessages.splice(0)) {
         await telegram.send(msg.chatId || task.chatId, msg.text);
       }
 
       if (result) await telegram.send(task.chatId, result);
 
-      // Update schedule
       if (task.scheduleType === 'once') {
         store.updateSchedule(task.id, { status: 'completed' } as any);
       } else if (task.scheduleType === 'interval') {
@@ -259,7 +272,6 @@ const schedulerInterval = setInterval(async () => {
           : new Date(Date.now() + ms).toISOString();
         store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
       } else {
-        // Cron: advance by 24h as fallback (agent can set precise nextRun via update_schedule)
         const nextRun = new Date(Date.now() + 24 * 60 * 60_000).toISOString();
         store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
       }
@@ -272,8 +284,6 @@ const schedulerInterval = setInterval(async () => {
   }
 }, 60_000);
 
-// --- Heartbeat ---
-
 let messagesProcessed = 0;
 const heartbeatInterval = setInterval(() => {
   const uptime = Math.floor((Date.now() - startTime) / 60_000);
@@ -281,12 +291,9 @@ const heartbeatInterval = setInterval(() => {
   store.pruneOldData();
 }, 5 * 60_000);
 
-// --- Main loop ---
-
 const abortController = new AbortController();
 
 async function main() {
-  // Track last message timestamp per chat for context window
   const lastProcessed = new Map<string, number>();
 
   for await (const update of telegram.poll(abortController.signal)) {
@@ -377,7 +384,6 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   const since = lastProcessed.get(msg.chatId) ?? (msg.timestamp - 30 * 60_000);
   const recent = store.getMessagesSince(msg.chatId, since, 50);
   if (recent.length === 0) {
-    // Fallback: use the current message directly if DB query returned nothing
     recent.push({ sender_name: msg.senderName, content: msg.text ?? '', timestamp: msg.timestamp });
   }
   const messagesXml = formatPrompt(recent);
@@ -442,14 +448,11 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
 }
 
-// --- Graceful shutdown ---
-
 async function shutdown() {
   console.log('[cakeagent] Shutting down...');
   clearInterval(schedulerInterval);
   clearInterval(heartbeatInterval);
   abortController.abort();
-  // Give active agent runs 5s to finish
   await new Promise(r => setTimeout(r, 5000));
   store.closeDb();
   process.exit(0);
@@ -457,8 +460,6 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-
-// --- Start ---
 
 main().catch(err => {
   console.error('[cakeagent] Fatal error:', err);

@@ -1,11 +1,15 @@
 import { execFile } from 'node:child_process';
 import { writeFileSync, readFileSync, unlinkSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomBytes } from 'node:crypto';
 import type { CakeSettings } from './types.js';
 
-const DATA_DIR = resolve(process.env['DATA_DIR'] || './data');
+let DATA_DIR = '';
+
+export function initVoice(dataDir: string): void {
+  DATA_DIR = dataDir;
+}
 
 function tmpPath(ext: string): string {
   return join(tmpdir(), `cakeagent_${randomBytes(6).toString('hex')}.${ext}`);
@@ -20,10 +24,6 @@ function execAsync(cmd: string, args: string[]): Promise<string> {
   });
 }
 
-/**
- * Speech-to-Text via local whisper-cli (whisper.cpp).
- * Requires: ffmpeg + whisper-cli on PATH, GGML model in data/models/.
- */
 export async function transcribeAudio(
   audio: Buffer,
   settings: CakeSettings,
@@ -42,7 +42,6 @@ export async function transcribeAudio(
       return null;
     }
 
-    // whisper-cli flags: -m model, -f file, -oj JSON output, -of output prefix, -np no prints
     const outPrefix = wavFile.replace(/\.[^.]+$/, '');
     await execAsync('whisper-cli', ['-m', modelPath, '-f', wavFile, '-oj', '-of', outPrefix, '-np']);
 
@@ -64,11 +63,6 @@ export async function transcribeAudio(
   }
 }
 
-/**
- * Text-to-Speech via edge-tts (free, no API key).
- * Outputs OGG/OPUS via ffmpeg for Telegram sendVoice compatibility.
- * Requires: `npm i edge-tts` + ffmpeg on PATH.
- */
 export async function synthesizeSpeech(
   text: string,
   settings: CakeSettings,
@@ -77,10 +71,9 @@ export async function synthesizeSpeech(
   const oggFile = tmpPath('ogg');
 
   try {
-    // edge-tts npm package may have broken main entry — try multiple import paths
     let mod: any = null;
-    for (const path of ['edge-tts', 'edge-tts/out/index.js']) {
-      mod = await (Function(`return import("${path}")`))().catch(() => null);
+    for (const p of ['edge-tts', 'edge-tts/out/index.js'] as string[]) {
+      try { mod = await import(p); } catch { /* try next */ }
       if (mod) break;
     }
     if (!mod) {
@@ -110,14 +103,12 @@ export async function synthesizeSpeech(
       return null;
     }
 
-    // Convert MP3 → OGG/OPUS for Telegram voice note compatibility
     await execAsync('ffmpeg', ['-i', mp3File, '-c:a', 'libopus', '-b:a', '48k', '-y', oggFile]);
 
     if (existsSync(oggFile)) {
       return readFileSync(oggFile);
     }
 
-    // Fallback: return MP3 if ffmpeg conversion fails (won't show as voice bubble)
     return readFileSync(mp3File);
   } catch (err) {
     console.error('[voice] TTS failed:', (err as Error).message);
@@ -129,9 +120,6 @@ export async function synthesizeSpeech(
   }
 }
 
-/**
- * Check voice dependencies at startup. Call this and log warnings.
- */
 export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; missing: string[] }> {
   const missing: string[] = [];
   let stt = false;
@@ -151,9 +139,9 @@ export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; mi
   }
 
   try {
-    const mod: any = await (Function('return import("edge-tts")')()).catch(() => null);
-    if (mod) tts = true;
-    else missing.push('edge-tts (run: npm i edge-tts)');
+    const pkg = 'edge-tts';
+    await import(pkg);
+    tts = true;
   } catch { missing.push('edge-tts (run: npm i edge-tts)'); }
 
   return { stt, tts, missing };

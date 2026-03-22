@@ -181,21 +181,70 @@ No API keys, no cloud transcription. Toggle voice in `/settings` — when you en
 
 ## Security
 
-CakeAgent runs as a dedicated `cakeagent` system user with a nologin shell. It cannot access anyone's home directory.
+CakeAgent gives Claude real system access — it installs packages, writes files, runs bash, and manages MCP servers. The security model ensures this works without making the server a target.
 
-| Protection | How |
-|------------|-----|
-| **No open ports** | Outbound connections only (Telegram long poll, MCP registry) |
-| **System user isolation** | `cakeagent` user, no login shell, no home directory access |
-| **systemd sandbox** | `ProtectSystem=full`, `ProtectHome`, `PrivateTmp`, kernel hardening |
-| **Sudoers whitelist** | Only `apt-get`, `apt`, `curl`, and the setup script |
-| **Bash command validation** | PreToolUse hook blocks injection patterns, reverse shells, secret reads |
-| **File read guard** | Blocks access to `.env`, `.ssh/`, credentials, SSH keys, `/etc/shadow` |
-| **File write guard** | Blocks writes to CLAUDE.md, `.env`, `/etc/`, credentials |
-| **Sender allowlist** | Only whitelisted Telegram users trigger the agent |
-| **Rate limiting** | Per-sender, persisted in SQLite |
-| **Audit log** | Every tool invocation recorded |
-| **Agent turn limit** | `maxTurns: 25` prevents runaway loops |
+### Four-layer defense
+
+```
+Layer 1 — OS         systemd sandbox + dedicated user
+Layer 2 — Sudoers    Whitelist: apt-get, apt, setup.sh (no curl, no bash -c)
+Layer 3 — Hooks      PreToolUse validators on every tool call
+Layer 4 — Agent      acceptEdits mode, turn limit, sender allowlist
+```
+
+Each layer is independent. A bypass at one layer is caught by the next.
+
+### What the agent CAN do
+
+| Action | How it works |
+|--------|-------------|
+| Install system packages | `sudo apt-get install -y <pkg>` (sudoers whitelist) |
+| Install npm packages | `npm install <pkg>` (no sudo needed) |
+| Read and write project files | Within `/opt/cakeagent` (systemd `ReadWritePaths`) |
+| Run bash commands | Validated by PreToolUse hook before execution |
+| Add MCP integrations | Writes to `.mcp.json`, loads on next message |
+| Download files | `curl` without sudo — writes to agent-owned paths only |
+| Schedule tasks | Persisted in SQLite, executed by orchestrator |
+| Check service status | `systemctl status` (read-only, mutations blocked) |
+
+### What's blocked
+
+| Threat | Blocked by |
+|--------|-----------|
+| Shell injection (`$(cmd)`, backticks, pipe to sh) | Hook: bash deny list |
+| Inline execution (`bash -c`, `sh -c`, `node -e`, `ruby -e`, `php -r`) | Hook: bash deny list |
+| Reverse shells (netcat, `/dev/tcp`, mkfifo) | Hook: bash deny list |
+| Download-and-execute (`curl \| bash`) | Hook: bash deny list |
+| Read secrets (`.env`, `.ssh/`, `.pem`, credentials) | Hook: Read + Grep file guard |
+| Enumerate sensitive dirs (`.ssh/`, `credentials/`) | Hook: Glob path guard |
+| Write to config (CLAUDE.md, `.env`, `/etc/`) | Hook: Write/Edit file guard |
+| Service mutations (`systemctl restart/stop/enable`) | Hook: bash deny list |
+| Chained destructive rm (`; rm -rf /`) | Hook: bash deny list |
+| User/password management | Hook: bash deny list |
+| Firewall changes (iptables, nftables) | Hook: bash deny list |
+| Download files as root | Sudoers: curl not in whitelist |
+| Access other users' files | OS: `ProtectHome=true` |
+| Write outside allowed paths | OS: `ProtectSystem=full` |
+| Escape temp directory | OS: `PrivateTmp=true` |
+| Load kernel modules | OS: `ProtectKernelModules=true` |
+| Unauthorized Telegram users | Agent: sender allowlist |
+| Runaway tool loops | Agent: `maxTurns: 25` |
+| Brute-force messaging | Agent: per-sender rate limiting |
+
+Every tool call — bash, file read, file write, grep, glob, MCP — is logged to an SQLite audit table.
+
+### Compared to openclaw
+
+| | CakeAgent | openclaw |
+|---|---|---|
+| **Attack surface** | 0 open ports, no web UI | WebSocket + HTTP API, web dashboard |
+| **Code to audit** | <2,000 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Extensions** | MCP open standard | Custom plugins ([7% leak credentials](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/)) |
+| **Process isolation** | Dedicated user, systemd sandbox, no root | Runs as installing user |
+| **Tool validation** | PreToolUse hook on every call | No call-level validation |
+| **Sudo scope** | `apt-get` and `apt` only | Full shell access |
+| **Credentials** | `.env` with 600 perms, blocked from agent | Plaintext in config files |
+| **Known CVEs** | 0 | [CVE-2026-25253](https://www.proarch.com/blog/threats-vulnerabilities/openclaw-rce-vulnerability-cve-2026-25253) (critical RCE) + [135K exposed instances](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/) |
 
 ---
 

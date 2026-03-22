@@ -3,33 +3,63 @@ import { logAudit } from './store.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Deny patterns for Bash commands — obvious shell injection / exfiltration
+// Deny patterns for Bash commands — defense-in-depth layer
+// Primary security: systemd sandboxing + limited sudoers + file path hooks
 const BASH_DENY = [
+  // Shell injection / inline execution
   /\$\(/,                              // command substitution
   /`[^`]+`/,                           // backtick execution
   /\|\s*(ba)?sh\b/,                    // pipe to shell
   /\|\s*zsh\b/,
-  /;\s*rm\s+-rf?\s/,                   // destructive chained rm
-  /\bnc\b.*-[elp]/,                    // netcat listeners
-  /\bncat\b/,
   /\b(curl|wget)\b.*\|\s*(ba)?sh/,     // download-and-execute
   /\beval\b/,                          // eval
+  /\b(ba)?sh\s+-c[\s"']/,              // bash -c, sh -c
+  /\bzsh\s+-c[\s"']/,                  // zsh -c
+  /\bpython[23]?\s+-c[\s"']/,         // python -c
+  /\bperl\s+-e[\s"']/,                // perl -e
+  /\bnode\s+-e[\s"']/,                // node -e
+  /\bruby\s+-e[\s"']/,                // ruby -e
+  /\bphp\s+-r[\s"']/,                 // php -r
+
+  // Reverse shells / exfiltration
+  /\bnc\b.*-[elp]/,                    // netcat listeners
+  /\bncat\b/,
   /\/dev\/(tcp|udp)\//,                // bash reverse shell
-  /\bmkfifo\b/,                        // named pipe (often reverse shell)
-  /\bpython[23]?\s+-c\s/,             // inline python execution
-  /\bperl\s+-e\s/,                     // inline perl
-  /\bcat\b.*\.(env|pem)\b/,           // read secrets via cat
-  /\bcat\b.*\/etc\/(shadow|passwd)/,   // read system auth files
-  /\bcat\b.*id_rsa/,                   // read SSH keys
-  /\bcat\b.*\.ssh\//,                  // read SSH directory
-  /\bsed\b.*\.env/,                    // modify .env via sed
-  /\bsystemctl\b.*sshd/,              // modify SSH service
-  /\bpasswd\b/,                        // change passwords
-  /\busermod\b/,                       // modify users
-  /\bchmod\b.*\.ssh/,                  // change SSH permissions
+  /\bmkfifo\b/,                        // named pipe
+
+  // Destructive operations
+  /;\s*rm\s+-rf?\s/,                   // chained destructive rm
+  /\bdd\b.*\bof=/,                     // disk write
+
+  // Secret access
+  /\b(cat|less|more|head|tail)\b.*\.(env|pem)\b/,
+  /\b(cat|less|more|head|tail)\b.*\/etc\/(shadow|passwd)/,
+  /\b(cat|less|more|head|tail)\b.*id_rsa/,
+  /\b(cat|less|more|head|tail)\b.*\.ssh\//,
+  /\b(cat|less|more|head|tail)\b.*credentials\//,
+  /\bsed\b.*\.env/,
+
+  // System administration — block mutations, allow diagnostics
+  /\bsystemctl\b.*\b(start|stop|restart|enable|disable|mask|unmask|daemon-reload)\b/,
+  /\breboot\b/,
+  /\bshutdown\b/,
+  /\bpasswd\b/,
+  /\busermod\b/,
+  /\buseradd\b/,
+  /\buserdel\b/,
+  /\bvisudo\b/,
+  /\bcrontab\b/,
+
+  // Filesystem security
+  /\bchmod\b.*\.(ssh|env|pem)/,
+  /\bchown\b.*\.(ssh|env|pem)/,
+  /\biptables\b/,
+  /\bnft\b/,
 ];
 
 // Protected file paths — agent must not modify these
+const SENSITIVE_PATHS = [/\.env$/, /\.ssh\//, /credentials\//, /\/etc\/shadow/, /\/etc\/passwd/, /id_rsa/, /\.pem$/];
+
 const PROTECTED_PATHS = [
   /CLAUDE\.md$/i,
   /\.claude\//,
@@ -41,16 +71,9 @@ const PROTECTED_PATHS = [
   /id_rsa/,
 ];
 
-/**
- * Build hook matchers for the Agent SDK.
- *
- * Returns an object suitable for `query({ options: { hooks } })`.
- * Hooks use closures to access shared state without IPC.
- */
 export function createHooks(state: SharedState, groupsDir = './groups') {
   return {
     PreToolUse: [
-      // 1. Bash command validator
       {
         matcher: '^Bash$',
         hooks: [async (input: any) => {
@@ -75,13 +98,11 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
           };
         }],
       },
-      // 2. Block reading sensitive files
       {
         matcher: '^Read$',
         hooks: [async (input: any) => {
           const filePath: string = input.tool_input?.file_path ?? '';
-          const SENSITIVE = [/\.env$/, /\.ssh\//, /credentials\//, /\/etc\/shadow/, /\/etc\/passwd/, /id_rsa/, /\.pem$/];
-          const blocked = SENSITIVE.find(p => p.test(filePath));
+          const blocked = SENSITIVE_PATHS.find(p => p.test(filePath));
           if (blocked) {
             logAudit('read_denied', filePath);
             return {
@@ -100,7 +121,52 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
           };
         }],
       },
-      // 3. Block writing to protected files
+      {
+        matcher: '^Grep$',
+        hooks: [async (input: any) => {
+          const searchPath: string = input.tool_input?.path ?? '';
+          const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
+          if (blocked) {
+            logAudit('grep_denied', searchPath);
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: 'Sensitive path — search blocked',
+              },
+            };
+          }
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+            },
+          };
+        }],
+      },
+      {
+        matcher: '^Glob$',
+        hooks: [async (input: any) => {
+          const searchPath: string = input.tool_input?.path ?? '';
+          const blocked = [/\.ssh\//, /credentials\//, /\.env$/, /\.pem$/].find(p => p.test(searchPath));
+          if (blocked) {
+            logAudit('glob_denied', searchPath);
+            return {
+              hookSpecificOutput: {
+                hookEventName: 'PreToolUse',
+                permissionDecision: 'deny',
+                permissionDecisionReason: 'Sensitive directory — enumeration blocked',
+              },
+            };
+          }
+          return {
+            hookSpecificOutput: {
+              hookEventName: 'PreToolUse',
+              permissionDecision: 'allow',
+            },
+          };
+        }],
+      },
       {
         matcher: '^(Write|Edit)$',
         hooks: [async (input: any) => {
@@ -126,7 +192,6 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
     ],
     PostToolUse: [
-      // 3. Outbound message interceptor — captures send_message calls
       {
         matcher: '^mcp__cakeagent__',
         hooks: [async (input: any) => {
@@ -160,7 +225,6 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
     ],
     PreCompact: [
-      // 4. Archive conversation before SDK compacts it
       {
         matcher: '.*',
         hooks: [async (input: any) => {

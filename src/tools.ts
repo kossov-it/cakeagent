@@ -9,7 +9,6 @@ import { DEFAULT_SETTINGS } from './types.js';
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
 
-// Sanitize content before writing to memory — strip obvious injection patterns
 function sanitizeMemory(content: string): string {
   const INJECTION_RE = [
     /ignore\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)/i,
@@ -25,19 +24,16 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
     name: 'cakeagent',
     version: '0.1.0',
     tools: [
-      // === Messaging ===
+
       tool(
         'send_message',
         'Send a message to the user immediately (for progress updates or multi-part responses)',
         { text: z.string().describe('Message text to send') },
         async (args) => {
-          // Actual sending happens in PostToolUse hook via shared state
-          // chatId is injected by the hook from the current context
           return { content: [{ type: 'text' as const, text: `Message queued: "${args.text.slice(0, 50)}..."` }] };
         },
       ),
 
-      // === Scheduling ===
       tool(
         'schedule_task',
         'Create a scheduled or recurring task. Use cron for recurring, once for one-time reminders.',
@@ -50,7 +46,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             .describe('group = run with chat history, isolated = fresh session'),
         },
         async (args) => {
-          // Actual creation happens in PostToolUse hook via shared state
           return { content: [{ type: 'text' as const, text: `Task scheduled: "${args.task.slice(0, 80)}" — next run: ${args.nextRun}` }] };
         },
       ),
@@ -99,7 +94,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         },
       ),
 
-      // === MCP Tool Management ===
       tool(
         'search_mcp_registry',
         'Search the official MCP Registry for available servers/integrations. Use this when the user asks to add tools or integrations.',
@@ -200,7 +194,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         },
       ),
 
-      // === Settings ===
       tool(
         'get_settings',
         'Read the current cakeagent settings',
@@ -234,7 +227,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         },
       ),
 
-      // === Groups ===
       tool(
         'register_group',
         'Register a Telegram group chat so cakeagent responds when triggered. Creates a group folder with its own CLAUDE.md.',
@@ -277,7 +269,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         },
       ),
 
-      // === Memory ===
       tool(
         'update_memory',
         'Append a new entry to persistent memory. Use for new preferences, facts, or context.',

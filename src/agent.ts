@@ -43,7 +43,9 @@ export async function runAgent(
         model: deps.settings.model || undefined,
         thinking: deps.settings.thinkingLevel === 'off'
           ? { type: 'disabled' as const }
-          : { type: 'enabled' as const, budgetTokens: ({ low: 1024, medium: 5120, high: 10240 } as Record<string, number>)[deps.settings.thinkingLevel] ?? 1024 },
+          : { type: 'adaptive' as const },
+        effort: deps.settings.thinkingLevel === 'off' ? undefined
+          : (deps.settings.thinkingLevel as 'low' | 'medium' | 'high'),
         permissionMode: 'acceptEdits',
         allowedTools: [
           'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
