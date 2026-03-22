@@ -5,6 +5,7 @@
 ![Files](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/files.json)
 ![Deps](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/deps.json)
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A personal AI agent you can actually read. Under 2,000 lines of code, 9 files, 3 runtime dependencies.
 
@@ -244,4 +245,4 @@ You can read the entire source in an hour. Please do before submitting a PR.
 
 ## License
 
-MIT
+[MIT](LICENSE)
