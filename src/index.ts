@@ -81,6 +81,7 @@ function refreshBotCommands(force = false) {
   const commands = [
     { command: 'status', description: 'Show bot status' },
     { command: 'settings', description: 'Open settings menu' },
+    { command: 'skills', description: 'Installed skills' },
     { command: 'reset', description: 'Reset conversation session' },
     { command: 'update', description: 'Pull latest code and restart' },
     { command: 'restart', description: 'Restart the bot' },
@@ -233,6 +234,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId,
         `*cakeagent*\nModel: \`${s.model}\`\nThinking: \`${s.thinkingLevel}\`\n` +
         `Groups: ${groups.length}\nActive tasks: ${store.countActiveSchedules()}\n` +
+        `Skills: ${Object.keys(store.loadSkillIndex()).length}\n` +
         `Voice in: ${s.voiceReceive ? 'on' : 'off'} | out: ${s.voiceSend ? 'on' : 'off'}\nUptime: ${uptime} min`
       );
       return true;
@@ -258,9 +260,20 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       abortController.abort();
       setTimeout(() => process.exit(0), 200);
       return true;
+    case 'skills': {
+      const index = store.loadSkillIndex();
+      const names = Object.keys(index);
+      if (names.length === 0) {
+        await telegram.send(chatId, 'No skills installed.\n\nTo add a skill, tell me what service you want to connect (e.g., "connect to Outlook") and I\'ll search skills.sh for you.\n\nOr browse https://skills.sh and send me the skill identifier to install.');
+      } else {
+        const list = names.map(n => `• *${n}* — ${index[n].owner}/${index[n].repo} (${index[n].installedAt})`).join('\n');
+        await telegram.send(chatId, `*Installed skills:*\n${list}\n\nTo add more, tell me what service you need or browse https://skills.sh`);
+      }
+      return true;
+    }
     case 'help':
       await telegram.send(chatId,
-        '/status — Bot status\n/settings — Settings menu\n/reset — Reset session\n/update — Pull latest code and restart\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
+        '/status — Bot status\n/settings — Settings menu\n/skills — Installed skills\n/reset — Reset session\n/update — Pull latest code and restart\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
       );
       return true;
     default:
@@ -457,7 +470,8 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     const messagesXml = formatPrompt(recent);
 
     const memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
-    const prompt = `[MEMORY]\n${memory || '(empty)'}\n[/MEMORY]${injectionWarning}\n\n${messagesXml}`;
+    const skills = store.loadAllSkills();
+    const prompt = `[MEMORY]\n${memory || '(empty)'}\n[/MEMORY]${skills ? `\n[SKILLS]\n${skills}\n[/SKILLS]` : ''}${injectionWarning}\n\n${messagesXml}`;
 
     const sessionId = store.getSession(groupFolder) ?? undefined;
     state.currentGroupFolder = groupFolder;

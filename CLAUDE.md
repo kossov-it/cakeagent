@@ -1,7 +1,7 @@
 # CakeAgent
 
 ## Purpose
-Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to Telegram, runs agents via `query()`, manages tools via MCP, supports voice.
+Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to Telegram, runs agents via `query()`, manages integrations via MCP + skills.sh, supports voice.
 
 ## Tech Stack
 - **Runtime**: Node.js 18+ (ESM)
@@ -38,7 +38,8 @@ npx tsc --noEmit     # Type-check only
 - ESM only (`"type": "module"`) — use `.js` extensions in imports
 - No framework dependencies for HTTP — raw `fetch()` everywhere
 - In-process MCP server via `createSdkMcpServer` — no child process IPC
-- PostToolUse hooks intercept MCP tool calls via closure-shared state
+- Two integration paths: MCP servers (runtime tools) and skills.sh (CLI-based, knowledge-driven)
+- Skills stored in `data/skills/`, loaded into prompt as `[SKILLS]` block
 - `acceptEdits` permission mode — never `bypassPermissions`
 - CLAUDE.md in `groups/*/` is read-only for the agent — memory goes to `data/memory.md`
 - Sequential processing — one agent invocation at a time

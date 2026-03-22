@@ -64,6 +64,7 @@ const BASH_DENY = [
   /\btee\b.*\/(src|channels|dist)\//,       // tee to source
   /\bcp\b.*\/(src|channels|dist)\//,        // copy over source
   /\bmv\b.*\/(src|channels|dist)\//,        // move over source
+  />\s*\S*\/data\/skills\//,          // redirect to skills directory
   /\bnpm\s+run\s+build\b/,           // block recompiling (only /update should build)
 ];
 
@@ -84,6 +85,7 @@ const PROTECTED_PATHS = [
   /package\.json$/,
   /tsconfig\.json$/,
   /id_rsa/,
+  /skills\/index\.json$/,
 ];
 
 export function createHooks(state: SharedState, groupsDir = './groups') {

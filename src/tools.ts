@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import * as z from 'zod';
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import * as store from './store.js';
 import type { SharedState, CakeSettings } from './types.js';
@@ -282,6 +282,89 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           if (groups.length === 0) return { content: [{ type: 'text' as const, text: 'No groups registered.' }] };
           const list = groups.map(g => `- ${g.name} (${g.chatId}) trigger: ${g.trigger} folder: ${g.folder}`).join('\n');
           return { content: [{ type: 'text' as const, text: list }] };
+        },
+      ),
+
+      tool(
+        'install_skill',
+        'Install a skill from skills.sh. Skills provide knowledge and CLI tools for services like Gmail, Outlook, Slack. Browse https://skills.sh to find skills, then install by source identifier.',
+        {
+          source: z.string().describe('skills.sh identifier: "owner/repo/skill" (e.g., "dandcg/claude-skills/outlook")'),
+        },
+        async (args) => {
+          const parts = args.source.replace(/^https?:\/\/skills\.sh\//, '').split('/');
+          if (parts.length < 3) {
+            return { content: [{ type: 'text' as const, text: 'Invalid source. Use format: owner/repo/skill (e.g., "dandcg/claude-skills/outlook")' }] };
+          }
+          const [owner, repo, ...rest] = parts;
+          const skill = rest.join('/');
+          const name = rest[rest.length - 1];
+
+          // Validate identifiers — prevent path traversal and SSRF
+          const IDENT_RE = /^[a-zA-Z0-9_.-]{1,100}$/;
+          if (!IDENT_RE.test(owner) || !IDENT_RE.test(repo) || !IDENT_RE.test(name)) {
+            return { content: [{ type: 'text' as const, text: 'Invalid characters in source identifier. Owner, repo, and skill name must be alphanumeric.' }] };
+          }
+
+          const index = store.loadSkillIndex();
+          if (index[name]) {
+            return { content: [{ type: 'text' as const, text: `Skill "${name}" is already installed. Remove it first with remove_skill.` }] };
+          }
+
+          // Fetch SKILL.md from GitHub (try main, fall back to master)
+          let content = '';
+          for (const branch of ['main', 'master']) {
+            const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${skill}/SKILL.md`;
+            try {
+              const res = await fetch(url);
+              if (res.ok) { content = await res.text(); break; }
+            } catch { /* try next */ }
+          }
+          if (!content) {
+            return { content: [{ type: 'text' as const, text: `Could not fetch SKILL.md from github.com/${owner}/${repo}/${skill}. Check the source identifier.` }] };
+          }
+
+          // Sanitize and store skill
+          const sanitized = sanitizeMemory(content);
+          const skillsDir = join(dataDir, 'skills');
+          mkdirSync(skillsDir, { recursive: true });
+          writeFileSync(join(skillsDir, `${name}.md`), sanitized);
+          index[name] = { owner, repo, skill, installedAt: new Date().toISOString().slice(0, 10) };
+          store.saveSkillIndex(index);
+          store.logAudit('skill_installed', `${name} from ${args.source}`);
+
+          return { content: [{ type: 'text' as const, text: `Installed skill "${name}". Read the skill content above to learn the setup steps and available commands. Install any required CLI tools via Bash, then follow the authentication instructions.` }] };
+        },
+      ),
+
+      tool(
+        'list_skills',
+        'List all installed skills from skills.sh',
+        {},
+        async () => {
+          const index = store.loadSkillIndex();
+          const names = Object.keys(index);
+          if (names.length === 0) return { content: [{ type: 'text' as const, text: 'No skills installed. Browse https://skills.sh to find skills.' }] };
+          const list = names.map(n => `- ${n} (${index[n].owner}/${index[n].repo}, installed ${index[n].installedAt})`).join('\n');
+          return { content: [{ type: 'text' as const, text: list }] };
+        },
+      ),
+
+      tool(
+        'remove_skill',
+        'Remove an installed skill',
+        { name: z.string().describe('Skill name to remove') },
+        async (args) => {
+          const index = store.loadSkillIndex();
+          if (!index[args.name]) {
+            return { content: [{ type: 'text' as const, text: `Skill "${args.name}" not found.` }] };
+          }
+          delete index[args.name];
+          store.saveSkillIndex(index);
+          const mdPath = join(dataDir, 'skills', `${args.name}.md`);
+          try { unlinkSync(mdPath); } catch { /* ignore */ }
+          store.logAudit('skill_removed', args.name);
+          return { content: [{ type: 'text' as const, text: `Removed skill "${args.name}".` }] };
         },
       ),
 

@@ -227,6 +227,36 @@ export function countActiveSchedules(): number {
   return row.count;
 }
 
+// --- Skills ---
+
+interface SkillMeta { owner: string; repo: string; skill: string; installedAt: string }
+
+export function loadSkillIndex(): Record<string, SkillMeta> {
+  const path = join(dataDir, 'skills', 'index.json');
+  if (!existsSync(path)) return {};
+  try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return {}; }
+}
+
+export function saveSkillIndex(index: Record<string, SkillMeta>): void {
+  const dir = join(dataDir, 'skills');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'index.json'), JSON.stringify(index, null, 2));
+}
+
+export function loadAllSkills(): string {
+  const dir = join(dataDir, 'skills');
+  if (!existsSync(dir)) return '';
+  const index = loadSkillIndex();
+  const parts: string[] = [];
+  for (const name of Object.keys(index)) {
+    const mdPath = join(dir, `${name}.md`);
+    if (existsSync(mdPath)) {
+      parts.push(`### Skill: ${name}\n${readFileSync(mdPath, 'utf-8').trim()}`);
+    }
+  }
+  return parts.join('\n\n---\n\n');
+}
+
 // --- Key-Value ---
 
 export function getKv(key: string): string | null {
