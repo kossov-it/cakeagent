@@ -55,7 +55,7 @@ The core is a thin orchestrator (~1,600 LOC) that connects Telegram via raw `fet
 ## 🚀 Setup
 
 ```bash
-git clone https://github.com/youruser/cakeagent.git
+git clone https://github.com/kossov-it/cakeagent.git
 cd cakeagent
 bash setup.sh
 ```
@@ -63,7 +63,7 @@ bash setup.sh
 The script walks you through:
 1. **Telegram bot token** — links you to [@BotFather](https://t.me/BotFather)
 2. **Your Telegram user ID** — links you to [@userinfobot](https://t.me/userinfobot)
-3. **Claude auth** — subscription login (preferred, opens a URL) or API key
+3. **Claude auth** — API key or subscription token (`claude setup-token`)
 4. Installs, builds, and optionally sets up a **systemd service**
 
 After that, send a message to your bot. CakeAgent guides you through the rest — name, personality, voice, integrations — via Telegram chat.
@@ -73,7 +73,7 @@ After that, send a message to your bot. CakeAgent guides you through the rest �
 ```bash
 cp .env.example .env && chmod 600 .env
 nano .env                               # Bot token + chat ID
-claude login                            # Or set ANTHROPIC_API_KEY in .env
+claude setup-token                      # Or set ANTHROPIC_API_KEY in .env
 npm install && npm run build
 sudo cp cakeagent.service /etc/systemd/system/
 sudo systemctl enable --now cakeagent

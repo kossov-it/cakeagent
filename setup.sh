@@ -98,19 +98,37 @@ fi
 echo ""
 echo "3️⃣  Claude authentication:"
 echo ""
-echo "   You need a Claude API key or subscription token."
+echo "   [1] API key (from console.anthropic.com/settings/keys)"
+echo "   [2] Subscription token (run: claude setup-token)"
 echo ""
-echo "   → Go to https://console.anthropic.com/settings/keys"
-echo "   → Create a key (starts with sk-ant-)"
-echo ""
-read -rp "   Paste your key: " API_KEY
+read -rp "   Choose [1/2]: " AUTH_CHOICE
 
-if [ -z "$API_KEY" ]; then
-  echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
-elif [ "${API_KEY:0:7}" = "sk-ant-" ]; then
-  echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
+API_KEY=""
+if [ "$AUTH_CHOICE" = "2" ]; then
+  echo ""
+  echo "   Run 'claude setup-token' in a separate terminal now."
+  echo "   It will authenticate your Claude subscription."
+  echo "   Press Enter here once it's done."
+  read -r
+  if command -v claude &>/dev/null && claude auth status 2>&1 | grep -qi "logged in\|authenticated"; then
+    echo "   ✅ Authenticated via Claude subscription"
+  else
+    echo "   ⚠️  Could not verify auth. You can retry later: claude setup-token"
+  fi
 else
-  echo "   ⚠️  Key doesn't start with sk-ant- — double-check it's correct"
+  echo ""
+  echo "   → Go to https://console.anthropic.com/settings/keys"
+  echo "   → Create a key (starts with sk-ant-)"
+  echo ""
+  read -rp "   Paste your key: " API_KEY
+
+  if [ -z "$API_KEY" ]; then
+    echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
+  elif [ "${API_KEY:0:7}" = "sk-ant-" ]; then
+    echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
+  else
+    echo "   ⚠️  Key doesn't start with sk-ant- — double-check it's correct"
+  fi
 fi
 
 cat > .env <<EOF
