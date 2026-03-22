@@ -1,6 +1,6 @@
 import type { Channel, TelegramUpdate, BotCommand, CakeSettings } from '../src/types.js';
 
-async function tg(token: string, method: string, body?: unknown): Promise<any> {
+async function tg(token: string, method: string, body?: unknown, retries = 0): Promise<any> {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -8,10 +8,10 @@ async function tg(token: string, method: string, body?: unknown): Promise<any> {
   });
   const json = await res.json() as { ok: boolean; result?: any; description?: string; parameters?: { retry_after?: number } };
   if (!json.ok) {
-    if (res.status === 429) {
+    if (res.status === 429 && retries < 3) {
       const wait = (json.parameters?.retry_after ?? 5) * 1000;
       await new Promise(r => setTimeout(r, wait));
-      return tg(token, method, body);
+      return tg(token, method, body, retries + 1);
     }
     throw new Error(`Telegram ${method}: ${json.description}`);
   }

@@ -33,18 +33,16 @@ if [ "${1:-}" = "uninstall" ]; then
   sudo rm -f "/etc/sudoers.d/$SERVICE_NAME"
   echo "   ✅ Sudoers entry removed"
 
-  sudo rm -rf "$INSTALL_DIR"
-  echo "   ✅ $INSTALL_DIR removed"
-
   if id "$SERVICE_USER" &>/dev/null; then
-    sudo userdel -r "$SERVICE_USER" 2>/dev/null || true
+    sudo userdel "$SERVICE_USER" 2>/dev/null || true
     echo "   ✅ User '$SERVICE_USER' removed"
   fi
 
-  sudo rm -rf "/home/$SERVICE_USER" 2>/dev/null || true
+  sudo rm -rf "$INSTALL_DIR"
+  echo "   ✅ $INSTALL_DIR removed"
 
   echo ""
-  echo "🧹 Fully uninstalled. System reverted to pre-install state."
+  echo "🧹 Fully uninstalled."
   exit 0
 fi
 
@@ -85,16 +83,21 @@ sudo chown "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
-  sudo cp -r "$SCRIPT_DIR"/{src,channels,groups,package.json,package-lock.json,tsconfig.json,cakeagent.service,.env.example,.gitignore} "$INSTALL_DIR/" 2>/dev/null || true
+  sudo cp -r "$SCRIPT_DIR"/{src,channels,groups,package.json,package-lock.json,tsconfig.json,cakeagent.service,.env.example,.gitignore,setup.sh,README.md,CLAUDE.md} "$INSTALL_DIR/" 2>/dev/null || true
   sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 fi
 
 echo ""
 echo "4️⃣  Installing dependencies..."
 
-sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm install 2>&1" | tail -1
-sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm i edge-tts 2>/dev/null" || true
-sudo -u "$SERVICE_USER" bash -c "cd $INSTALL_DIR && npm run build 2>&1" | tail -1
+NODE_BIN=$(command -v node)
+NPM_BIN=$(command -v npm)
+NPX_BIN=$(command -v npx)
+NODE_DIR=$(dirname "$NODE_BIN")
+
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN install 2>&1" | tail -1
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN i edge-tts 2>/dev/null" || true
+sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN run build 2>&1" | tail -1
 echo "   ✅ Built"
 
 echo ""
@@ -192,9 +195,11 @@ echo "   ✅ Configuration saved"
 echo ""
 echo "8️⃣  Starting service..."
 
+NODE_PATH_DIR=$(dirname "$(command -v node)")
 sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
     -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
     -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
+    -e "/\[Service\]/a Environment=PATH=${NODE_PATH_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     "$INSTALL_DIR/cakeagent.service" | sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null
 
 sudo systemctl daemon-reload

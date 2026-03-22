@@ -66,14 +66,26 @@ const allowedChatIds = () => {
 };
 const telegram = createTelegramChannel(config.telegramBotToken, allowedChatIds);
 
-// Set bot commands
-telegram.setCommands([
-  { command: 'status', description: 'Show bot status' },
-  { command: 'settings', description: 'Open settings menu' },
-  { command: 'reset', description: 'Reset conversation session' },
-  { command: 'restart', description: 'Restart the bot' },
-  { command: 'help', description: 'Show available commands' },
-]);
+function refreshBotCommands() {
+  const commands = [
+    { command: 'status', description: 'Show bot status' },
+    { command: 'settings', description: 'Open settings menu' },
+    { command: 'reset', description: 'Reset conversation session' },
+    { command: 'restart', description: 'Restart the bot' },
+    { command: 'help', description: 'Show available commands' },
+  ];
+  try {
+    const mcpPath = resolve('.mcp.json');
+    if (existsSync(mcpPath)) {
+      const mcpConfig = JSON.parse(readFileSync(mcpPath, 'utf-8'));
+      for (const name of Object.keys(mcpConfig.mcpServers ?? {})) {
+        commands.push({ command: name.replace(/[^a-z0-9]/g, '').slice(0, 32), description: `${name} integration` });
+      }
+    }
+  } catch { /* ignore */ }
+  telegram.setCommands(commands);
+}
+refreshBotCommands();
 
 const startTime = Date.now();
 console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.telegramChatId}`);
@@ -334,9 +346,17 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   const sessionId = store.getSession(groupFolder) ?? undefined;
 
   state.currentGroupFolder = groupFolder;
+  let streamed = false;
+
   const { sessionId: newSessionId, result } = await runAgent(
     { prompt, groupFolder, chatId: msg.chatId, isMain: groupFolder === 'main', sessionId },
     { picoServer, hooks, settings: currentSettings, groupsDir },
+    async (text) => {
+      telegram.stopTyping();
+      await telegram.send(msg.chatId, text);
+      streamed = true;
+      telegram.startTyping(msg.chatId);
+    },
   );
 
   for (const pending of state.pendingMessages.splice(0)) {
@@ -353,7 +373,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     }
   }
 
-  if (result) {
+  if (result && !streamed) {
     if (currentSettings.voiceReply && msg.voiceFileId) {
       const audio = await synthesizeSpeech(result, currentSettings);
       if (audio) await telegram.sendVoice(msg.chatId, audio);
@@ -361,8 +381,10 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     } else {
       await telegram.send(msg.chatId, result);
     }
-    store.saveOutgoing(msg.chatId, result, Date.now());
   }
+  if (result) store.saveOutgoing(msg.chatId, result, Date.now());
+
+  refreshBotCommands();
 
   if (newSessionId) store.setSession(groupFolder, newSessionId);
   lastProcessed.set(msg.chatId, msg.timestamp);

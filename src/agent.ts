@@ -15,20 +15,21 @@ interface AgentDeps {
 export async function runAgent(
   params: AgentRunParams,
   deps: AgentDeps,
+  onText?: (text: string) => Promise<void>,
 ): Promise<{ sessionId: string; result: string }> {
   const groupPath = resolve(deps.groupsDir, params.groupFolder);
 
-  // Load external MCP servers from .mcp.json
   let externalMcp: Record<string, any> = {};
   if (existsSync(MCP_JSON_PATH)) {
     try {
       const raw = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8'));
       externalMcp = raw.mcpServers ?? {};
-    } catch { /* ignore parse errors */ }
+    } catch { /* ignore */ }
   }
 
   let sessionId = params.sessionId ?? '';
   let result = '';
+  let lastStreamedText = '';
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), deps.settings.agentTimeoutMs);
@@ -62,6 +63,22 @@ export async function runAgent(
       if (message.type === 'system' && message.subtype === 'init') {
         sessionId = (message as any).session_id ?? sessionId;
       }
+
+      if (message.type === 'assistant' && onText) {
+        const content = (message as any).message?.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === 'text' && block.text) {
+              const text = block.text.trim();
+              if (text && text !== lastStreamedText) {
+                await onText(text);
+                lastStreamedText = text;
+              }
+            }
+          }
+        }
+      }
+
       if (message.type === 'result') {
         result = (message as any).result ?? '';
       }
