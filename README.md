@@ -10,23 +10,26 @@ Single Node.js process. 3 dependencies. No containers. No web UI. No API keys fo
 
 ## Why
 
-Every open-source AI assistant arrives pre-bloated. 50+ dependencies, Docker Compose stacks, Redis queues, WebSocket servers, custom plugin systems, and web dashboards — before you've sent a single message. They reinvent capabilities that already exist elsewhere, then lock you into their abstractions.
+The most popular open-source AI assistants ship with 400K+ lines of code, 50+ dependencies, WebSocket control planes, monorepo workspace systems, custom plugin marketplaces, and eager-loaded SDKs for 20+ messaging platforms — burning 75–85% CPU on startup before a single message is processed. They bind to `0.0.0.0` by default, store credentials in plaintext, and have racked up critical RCE vulnerabilities (CVE-2026-25253, CVE-2026-30741) with 135,000+ exposed instances. Their plugin ecosystems? [7% of published skills contain credential-leaking flaws](https://signalcage.com/artificial-intelligence/2026/17/20/openclaw-security-crisis-135000-exposed-instances-and-active-infostealer-campaigns-february-2026/).
+
+Users report spending more time configuring these tools than actually using them.
 
 CakeAgent takes the opposite approach: **do almost nothing yourself, and let the ecosystem do the rest.**
 
-The core is a thin orchestrator (~1,600 LOC) that connects Telegram to the Claude Agent SDK. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Instead of building a plugin system, CakeAgent plugs into the one that already exists.
+The core is a thin orchestrator (~1,700 LOC) that connects Telegram to the Claude Agent SDK. Everything else — calendar, email, GitHub, Slack, databases, APIs — comes from the **MCP ecosystem**. Thousands of ready-made tool servers, discoverable and installable via chat. No custom plugin system, no marketplace, no trust assumptions — just the open standard.
 
 ### How it compares
 
-| | CakeAgent | Typical AI assistant |
+| | CakeAgent | Popular AI assistants |
 |---|---|---|
-| Dependencies | 3 | 30–100+ |
-| Source code | ~1,600 LOC | 10K–50K+ |
-| Network listeners | 0 (outbound only) | HTTP, WebSocket, Redis |
-| Telegram | 200 LOC raw `fetch()` | Framework + adapter |
-| Tool ecosystem | MCP — thousands of servers, install via chat | Custom plugin SDK |
-| Permission model | `acceptEdits` + PreToolUse hooks | `bypassPermissions` or nothing |
-| Memory | Injected into every prompt | Vector DB, embeddings |
+| **Code** | ~1,700 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Dependencies** | 3 | 47+ direct, hundreds transitive |
+| **Network surface** | 0 listeners (outbound only) | WebSocket on 0.0.0.0, HTTP API |
+| **Telegram** | 200 LOC raw `fetch()` | grammY/Telegraf framework + adapter |
+| **Tool ecosystem** | MCP open standard — install via chat | Custom plugin marketplace (7% malicious) |
+| **Security** | Dedicated user, systemd sandbox, Bash hooks | Plaintext credentials, no auth by default |
+| **Startup** | <1s, ~12MB memory | 75–85% CPU, 3MB bundle, 1000+ imports |
+| **CVEs** | 0 | Multiple critical RCEs |
 
 ### Key design decisions
 
