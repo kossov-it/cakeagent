@@ -18,7 +18,7 @@ EnvironmentFile=/opt/cakeagent/.env
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=false
 ReadWritePaths=/opt/cakeagent
 PrivateTmp=true
 ProtectKernelTunables=true
