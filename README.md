@@ -1,10 +1,10 @@
 # 🍰 CakeAgent
 
 [![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
-![Lines](https://img.shields.io/badge/source-1%2C750_lines-blue)
-![Files](https://img.shields.io/badge/files-9-blue)
-![Deps](https://img.shields.io/badge/deps-3-green)
-![Size](https://img.shields.io/badge/source_size-63KB-blue)
+![Lines](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/lines.json)
+![Files](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/files.json)
+![Deps](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/deps.json)
+![Size](https://img.shields.io/endpoint?url=https://kossov-it.github.io/cakeagent/badges/size.json)
 
 A personal AI agent you can actually read. 1,750 lines, 9 files, 3 runtime dependencies.
 
