@@ -45,16 +45,26 @@ function chunkText(text: string, maxLen = 4096): string[] {
 }
 
 function markdownToHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
+  // Code blocks first (before inline code eats the backticks)
+  let result = text.replace(/```[\w]*\n?([\s\S]*?)```/g, (_m, code) => {
+    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').trimEnd();
+    return `<pre>${escaped}</pre>`;
+  });
+
+  // Inline code (skip already-processed <pre> blocks)
+  result = result.replace(/`([^`]+)`/g, (_m, code) => {
+    const escaped = code.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<code>${escaped}</code>`;
+  });
+
+  // Remaining markdown outside code blocks
+  return result
+    .replace(/&(?!amp;|lt;|gt;)/g, '&amp;')
+    .replace(/<(?!\/?(?:b|i|u|s|pre|code)[ >])/g, '&lt;')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\*(.+?)\*/g, '<i>$1</i>')
     .replace(/__(.+?)__/g, '<u>$1</u>')
-    .replace(/~~(.+?)~~/g, '<s>$1</s>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre>$1</pre>');
+    .replace(/~~(.+?)~~/g, '<s>$1</s>');
 }
 
 function buildSettingsKeyboard(settings: CakeSettings): any {
