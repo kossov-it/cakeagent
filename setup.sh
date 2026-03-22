@@ -24,21 +24,23 @@ if [ "${1:-}" = "update" ]; then
   else
     echo "   No changes."
   fi
-  # Refresh sudoers
-  SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
-  cat <<SUDOERS > "$SUDOERS_FILE"
+  # Refresh sudoers + service file (skip if /etc is read-only, e.g. inside systemd sandbox)
+  if touch /etc/sudoers.d/.writetest 2>/dev/null; then
+    rm -f /etc/sudoers.d/.writetest
+    SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
+    cat <<SUDOERS > "$SUDOERS_FILE"
 $SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
-  chmod 440 "$SUDOERS_FILE"
-  # Refresh service file
-  sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
-      -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
-      -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
-      -e "/\[Service\]/a Environment=PATH=${NODE_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-      "$INSTALL_DIR/cakeagent.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
-  systemctl daemon-reload
+    chmod 440 "$SUDOERS_FILE"
+    sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
+        -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
+        -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
+        -e "/\[Service\]/a Environment=PATH=${NODE_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+        "$INSTALL_DIR/cakeagent.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
+    systemctl daemon-reload
+  fi
   if [ "$BEFORE" != "$AFTER" ]; then
     systemctl restart "$SERVICE_NAME"
     echo "✅ Updated and restarted."
