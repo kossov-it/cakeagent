@@ -106,16 +106,38 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts      422  Orchestrator, routing, scheduler
-src/tools.ts      309  16 MCP tools (in-process)
-src/store.ts      218  SQLite: messages, schedules, groups, audit
-src/voice.ts      151  Whisper STT + Edge TTS
-src/hooks.ts      147  Security hooks
-src/types.ts      141  Type definitions
-src/agent.ts       91  Claude Agent SDK wrapper
-src/config.ts      51  .env parser
-channels/telegram.ts  220  Telegram adapter
+src/index.ts          466  Orchestrator, routing, scheduler, voice toggle
+src/tools.ts          310  16 MCP tools (in-process)
+channels/telegram.ts  230  Telegram adapter (raw fetch)
+src/store.ts          218  SQLite: messages, schedules, groups, audit
+src/hooks.ts          183  Security hooks (Bash, Read, Write guards)
+src/voice.ts          160  Whisper STT + Edge TTS
+src/types.ts          141  Type definitions
+src/agent.ts           91  Claude Agent SDK wrapper + streaming
+src/config.ts          51  .env parser
 ```
+
+### First run
+
+On your first message, CakeAgent detects empty memory and starts an onboarding conversation:
+
+1. Asks your name and preferred language
+2. Asks about personality (casual, formal, etc.)
+3. Offers to set up group chats
+4. Offers to enable voice (installs dependencies if you say yes)
+5. Suggests MCP integrations (calendar, email, etc.)
+
+Everything is saved to `settings.json` and `memory.md`. The agent remembers your preferences across restarts and session resets.
+
+### Streaming
+
+Responses are streamed as the agent works. If Claude produces intermediate text (thinking out loud, progress updates), you see it immediately in Telegram instead of waiting for the full response. The final result is only sent if it wasn't already streamed.
+
+### Memory
+
+The agent has persistent memory in `data/memory.md`. It's injected into every prompt automatically — the agent always sees it. When you say "remember that..." or "from now on...", the agent writes to memory. It also cleans up stale entries periodically via `rewrite_memory`.
+
+Memory survives restarts and `/reset`. The `/reset` command only clears the Claude SDK session (conversation turns), not learned preferences.
 
 ---
 
@@ -166,7 +188,7 @@ CakeAgent runs as a dedicated `cakeagent` system user with a nologin shell. It c
 | **No open ports** | Outbound connections only (Telegram long poll, MCP registry) |
 | **System user isolation** | `cakeagent` user, no login shell, no home directory access |
 | **systemd sandbox** | `ProtectSystem=full`, `ProtectHome`, `PrivateTmp`, kernel hardening |
-| **Sudoers whitelist** | Only `apt-get` and `apt` — nothing else |
+| **Sudoers whitelist** | Only `apt-get`, `apt`, `curl`, and the setup script |
 | **Bash command validation** | PreToolUse hook blocks injection patterns, reverse shells, secret reads |
 | **File read guard** | Blocks access to `.env`, `.ssh/`, credentials, SSH keys, `/etc/shadow` |
 | **File write guard** | Blocks writes to CLAUDE.md, `.env`, `/etc/`, credentials |
