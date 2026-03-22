@@ -68,6 +68,11 @@ const PROTECTED_PATHS = [
   /\.ssh\//,
   /\/etc\//,
   /\.pem$/,
+  /\/src\//,
+  /\/channels\//,
+  /\/dist\//,
+  /package\.json$/,
+  /tsconfig\.json$/,
   /id_rsa/,
 ];
 
