@@ -319,14 +319,21 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
           msg.text = `[Voice message]: ${transcript}`;
           store.saveMessage(msg, msg.text);
         } else {
-          msg.text = '[Voice message — transcription unavailable]';
+          const { missing } = await checkVoiceDeps();
+          msg.text = missing.length > 0
+            ? `[Voice message — transcription failed. Missing: ${missing.join(', ')}. Install them now.]`
+            : '[Voice message — transcription returned empty]';
         }
       } catch (err) {
-        console.error('[voice] Transcription error:', (err as Error).message);
-        msg.text = '[Voice message — transcription failed]';
+        const errMsg = (err as Error).message;
+        console.error('[voice] Transcription error:', errMsg);
+        const { missing } = await checkVoiceDeps();
+        msg.text = missing.length > 0
+          ? `[Voice message — error: ${errMsg.slice(0, 100)}. Missing: ${missing.join(', ')}. Install them now.]`
+          : `[Voice message — transcription error: ${errMsg.slice(0, 100)}]`;
       }
     } else {
-      msg.text = '[Voice message received — voice transcription is disabled]';
+      msg.text = '[Voice message received — voice transcription is disabled. Enable via /settings or say "enable voice".]';
     }
   }
 

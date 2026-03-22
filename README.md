@@ -194,7 +194,9 @@ The agent queries the [official MCP Registry](https://registry.modelcontextproto
 | STT | **whisper.cpp** (local) | Free |
 | TTS | **Edge TTS** (Microsoft) | Free |
 
-No API keys for voice. STT and TTS run entirely on your server. Enable via `/settings` or chat.
+No API keys for voice. STT and TTS run entirely on your server.
+
+Enable via `/settings` (Voice In / Voice Reply toggles) or ask the agent in chat. When voice is enabled and dependencies are missing, the agent detects what's needed (ffmpeg, whisper model, edge-tts) and installs them automatically — no manual SSH required.
 
 ---
 
@@ -225,18 +227,23 @@ No API keys for voice. STT and TTS run entirely on your server. Enable via `/set
 | `/status` | Model, uptime, active tasks | Free |
 | `/settings` | Inline keyboard for model, thinking, voice | Free |
 | `/reset` | Clear conversation session | Free |
-| `/restart` | Restart the bot (systemd brings it back) | Free |
+| `/update` | Pull latest code, rebuild, restart | Free |
+| `/restart` | Restart the bot | Free |
 | `/help` | List commands | Free |
 
 ---
 
 ## Manage
 
+Via Telegram (zero API cost):
+- `/update` — pulls latest code from git, rebuilds, restarts
+- `/restart` — restarts without updating
+
+Via CLI:
 ```bash
-sudo journalctl -u cakeagent -f       # Live logs
-sudo systemctl status cakeagent       # Status
-sudo systemctl restart cakeagent      # Restart (or /restart via Telegram)
-sudo systemctl stop cakeagent         # Stop
+sudo bash /opt/cakeagent/setup.sh update    # Pull + build + restart
+sudo journalctl -u cakeagent -f             # Live logs
+sudo systemctl status cakeagent             # Status
 ```
 
 ---
