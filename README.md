@@ -40,7 +40,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orc
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 220 LOC raw `fetch()` | Framework + adapter |
 | **Extensions** | MCP open standard | Custom plugin marketplace |
-| **Security** | Dedicated user, systemd sandbox, code-level hooks | Plaintext creds, no auth |
+| **Security** | 4-layer defense (OS + sudoers + hooks + agent) | Plaintext creds, no auth |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ---
@@ -170,81 +170,48 @@ The agent searches the [official MCP Registry](https://registry.modelcontextprot
 
 ## Voice
 
-| | Provider | Runs on |
-|---|---|---|
-| **Speech-to-text** | whisper.cpp | Your server |
-| **Text-to-speech** | Edge TTS | Your server |
+Toggle in `/settings` — CakeAgent installs everything automatically on first enable:
 
-No API keys, no cloud transcription. Toggle voice in `/settings` — when you enable it, CakeAgent installs the required packages (ffmpeg, whisper model, edge-tts) automatically and confirms when it's ready. Disable it and the dependencies stay installed but inactive.
+| | Provider | Install |
+|---|---|---|
+| **Speech-to-text** | whisper.cpp (local) | ffmpeg, cmake, whisper model, compiles whisper-cli |
+| **Text-to-speech** | Edge TTS (Python CLI) | python3-pip, edge-tts |
+
+No API keys, no cloud transcription. Everything runs on your server.
 
 ---
 
 ## Security
 
-CakeAgent gives Claude real system access — it installs packages, writes files, runs bash, and manages MCP servers. The security model ensures this works without making the server a target.
-
-### Four-layer defense
+CakeAgent gives Claude real system access — it installs packages, manages services, writes files, runs bash, and adds MCP servers. Four independent layers ensure this works without making the server a target.
 
 ```
-Layer 1 — OS         systemd sandbox + dedicated user
+Layer 1 — OS         systemd sandbox + dedicated user (nologin shell)
 Layer 2 — Sudoers    Whitelist: apt-get, apt, dpkg, systemctl, setup.sh
 Layer 3 — Hooks      PreToolUse validators on every tool call
-Layer 4 — Agent      acceptEdits mode, turn limit, sender allowlist
+Layer 4 — Agent      acceptEdits mode, maxTurns: 25, sender allowlist
 ```
 
-Each layer is independent. A bypass at one layer is caught by the next.
+### What the agent can do
 
-### What the agent CAN do
-
-| Action | How it works |
-|--------|-------------|
-| Install system packages | `sudo apt-get install -y <pkg>` (sudoers whitelist) |
-| Install npm packages | `npm install <pkg>` (no sudo needed) |
-| Manage services | `sudo systemctl start/restart/enable <svc>` (critical services blocked) |
-| Read and write project files | Within `/opt/cakeagent` (systemd `ReadWritePaths`) |
+| Action | Mechanism |
+|--------|-----------|
+| Install packages | `sudo apt-get` / `pip3` / `npm` |
+| Manage services | `sudo systemctl` (sshd, cakeagent, networking, firewall blocked) |
+| Read/write data files | Within `/opt/cakeagent/data`, `groups/` |
 | Run bash commands | Validated by PreToolUse hook before execution |
 | Add MCP integrations | Writes to `.mcp.json`, loads on next message |
-| Download files | `curl` without sudo — writes to agent-owned paths only |
-| Schedule tasks | Persisted in SQLite, executed by orchestrator |
+| Download files | `curl` without sudo — agent-owned paths only |
 
 ### What's blocked
 
-| Threat | Blocked by |
-|--------|-----------|
-| Shell injection (`$(cmd)`, backticks, pipe to sh) | Hook: bash deny list |
-| Inline execution (`bash -c`, `sh -c`, `node -e`, `ruby -e`, `php -r`) | Hook: bash deny list |
-| Reverse shells (netcat, `/dev/tcp`, mkfifo) | Hook: bash deny list |
-| Download-and-execute (`curl \| bash`) | Hook: bash deny list |
-| Read secrets (`.env`, `.ssh/`, `.pem`, credentials) | Hook: Read + Grep file guard |
-| Enumerate sensitive dirs (`.ssh/`, `credentials/`) | Hook: Glob path guard |
-| Write to config (CLAUDE.md, `.env`, `/etc/`) | Hook: Write/Edit file guard |
-| Manage critical services (sshd, cakeagent, networking, firewall) | Hook: bash deny list |
-| Chained destructive rm (`; rm -rf /`) | Hook: bash deny list |
-| User/password management | Hook: bash deny list |
-| Firewall changes (iptables, nftables) | Hook: bash deny list |
-| Download files as root | Sudoers: curl not in whitelist |
-| Access other users' files | OS: `ProtectHome=true` |
-| Write outside allowed paths | OS: `ProtectSystem=full` |
-| Escape temp directory | OS: `PrivateTmp=true` |
-| Load kernel modules | OS: `ProtectKernelModules=true` |
-| Unauthorized Telegram users | Agent: sender allowlist |
-| Runaway tool loops | Agent: `maxTurns: 25` |
-| Brute-force messaging | Agent: per-sender rate limiting |
-
-Every tool call — bash, file read, file write, grep, glob, MCP — is logged to an SQLite audit table.
-
-### Compared to popular alternatives
-
-| | CakeAgent | Popular AI assistants |
-|---|---|---|
-| **Attack surface** | 0 open ports, no web UI | WebSocket + HTTP API, web dashboard |
-| **Code to audit** | <2,000 LOC, 9 files | 400K+ LOC, 50+ modules |
-| **Extensions** | MCP open standard | Custom plugins (marketplace, unvetted) |
-| **Process isolation** | Dedicated user, systemd sandbox, no root | Runs as installing user |
-| **Tool validation** | PreToolUse hook on every call | No call-level validation |
-| **Sudo scope** | `apt-get`, `apt`, `dpkg` only | Full shell access |
-| **Credentials** | `.env` with 600 perms, blocked from agent | Plaintext in config files |
-| **Known CVEs** | 0 | Multiple critical RCEs |
+| Layer | Blocked |
+|-------|---------|
+| **Hooks — Bash** | Shell injection (`$()`, backticks), inline execution (`bash -c`, `node -e`, `ruby -e`, `php -r`), reverse shells, download-and-execute, destructive chained rm, user/password management, critical service mutations, firewall changes |
+| **Hooks — Files** | Read `.env`/`.ssh`/credentials/`.pem` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`/etc/` (Write/Edit guard) |
+| **Sudoers** | No `curl` as root, no arbitrary `bash -c`, no commands outside whitelist |
+| **OS sandbox** | `ProtectHome`, `ProtectSystem=full`, `PrivateTmp`, kernel module protection |
+| **Agent** | Sender allowlist, rate limiting, turn limit, every tool call logged to SQLite audit table |
 
 ---
 
