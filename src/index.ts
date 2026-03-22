@@ -119,7 +119,7 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   } else if (key === 'voiceReply') {
     settings.voiceReply = !settings.voiceReply;
     if (settings.voiceReply) {
-      await telegram.send(chatId, 'Installing voice output deps — this may take a minute...');
+      await telegram.send(chatId, 'Setting up voice output...');
       installVoiceDeps(chatId, 'tts', 'voiceReply');
       return settings;
     }
@@ -145,12 +145,11 @@ async function installVoiceDeps(chatId: string, type: 'stt' | 'tts', settingKey:
   });
 
   try {
-    await runCmd('sudo', ['dpkg', '--configure', '-a']);
-    await runCmd('sudo', ['apt-get', 'install', '-f', '-y'], {
-      env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
-    });
-
     if (type === 'stt') {
+      await runCmd('sudo', ['dpkg', '--configure', '-a']);
+      await runCmd('sudo', ['apt-get', 'install', '-f', '-y'], {
+        env: { ...process.env, DEBIAN_FRONTEND: 'noninteractive' },
+      });
       await apt(['ffmpeg', 'cmake', 'g++', 'git']);
 
       const modelsDir = join(config.dataDir, 'models');
@@ -176,7 +175,6 @@ async function installVoiceDeps(chatId: string, type: 'stt' | 'tts', settingKey:
         await runCmd('cmake', ['--build', buildDir, '--config', 'Release', '-j4'], { timeout: 600_000 });
       }
     } else {
-      await apt(['ffmpeg']);
       await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
     }
 
