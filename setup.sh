@@ -110,20 +110,28 @@ if [ "$AUTH_CHOICE" = "2" ]; then
   read -rsp "   API key (hidden): " API_KEY
   echo ""
 else
-  echo ""
-  echo "   Running Claude login..."
-  if command -v claude &>/dev/null; then
-    claude login || echo "   ⚠️  Login failed. Retry later with: claude login"
-  else
-    echo "   ⚠️  Claude Code CLI not found."
+  if ! command -v claude &>/dev/null; then
+    echo ""
+    echo "   Claude Code CLI is required for subscription auth."
     echo "   Install: npm install -g @anthropic-ai/claude-code"
-    echo "   Then run: claude login"
     echo ""
     read -rp "   Install it now? [Y/n]: " INSTALL_CLAUDE
     INSTALL_CLAUDE_LOWER=$(echo "$INSTALL_CLAUDE" | tr '[:upper:]' '[:lower:]')
     if [ "$INSTALL_CLAUDE_LOWER" != "n" ]; then
       npm install -g @anthropic-ai/claude-code
-      claude login || echo "   ⚠️  Login failed. Retry with: claude login"
+    else
+      echo "   ⚠️  Skipped. Install later and run: claude auth login"
+    fi
+  fi
+
+  if command -v claude &>/dev/null; then
+    echo ""
+    echo "   Checking auth status..."
+    if claude auth status 2>&1 | grep -q "Logged in"; then
+      echo "   ✅ Already authenticated"
+    else
+      echo "   Opening login (a browser URL will appear)..."
+      claude auth login --claudeai || echo "   ⚠️  Login failed. Retry with: claude auth login"
     fi
   fi
 fi
