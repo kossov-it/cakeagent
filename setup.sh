@@ -103,11 +103,14 @@ echo ""
 echo "   → Go to https://console.anthropic.com/settings/keys"
 echo "   → Create a key (starts with sk-ant-)"
 echo ""
-read -rsp "   Paste your key (hidden): " API_KEY
-echo ""
+read -rp "   Paste your key: " API_KEY
 
 if [ -z "$API_KEY" ]; then
   echo "   ⚠️  No key provided. Add ANTHROPIC_API_KEY to .env before starting."
+elif [ "${API_KEY:0:7}" = "sk-ant-" ]; then
+  echo "   ✅ Key: ${API_KEY:0:10}$( printf '*%.0s' $(seq 1 $((${#API_KEY} - 14))) )${API_KEY: -4}"
+else
+  echo "   ⚠️  Key doesn't start with sk-ant- — double-check it's correct"
 fi
 
 cat > .env <<EOF
