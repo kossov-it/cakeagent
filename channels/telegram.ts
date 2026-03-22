@@ -85,7 +85,7 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
         btn(mark(isThink('high'), 'High'), 'thinking:high'),
       ],
       [
-        btn(mark(settings.voiceReceive && settings.voiceReply, 'Voice'), 'voice:toggle'),
+        btn(mark(settings.voice, 'Voice'), 'voice:toggle'),
       ],
     ],
   };

@@ -110,10 +110,8 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   } else if (key === 'thinking' && VALID_THINKING.has(val)) {
     settings.thinkingLevel = val;
   } else if (key === 'voice') {
-    const voiceOn = !(settings.voiceReceive && settings.voiceReply);
-    settings.voiceReceive = voiceOn;
-    settings.voiceReply = voiceOn;
-    if (voiceOn) {
+    settings.voice = !settings.voice;
+    if (settings.voice) {
       await telegram.send(chatId, 'Setting up voice — this may take a few minutes on first run...');
       installVoiceDeps(chatId);
       return settings;
@@ -175,8 +173,7 @@ async function installVoiceDeps(chatId: string): Promise<void> {
     await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
 
     const s = store.loadSettings();
-    s.voiceReceive = true;
-    s.voiceReply = true;
+    s.voice = true;
     store.saveSettings(s);
 
     await telegram.send(chatId, 'Voice ready. Restarting...');
@@ -184,8 +181,7 @@ async function installVoiceDeps(chatId: string): Promise<void> {
     setTimeout(() => process.exit(0), 200);
   } catch (err) {
     const s = store.loadSettings();
-    s.voiceReceive = false;
-    s.voiceReply = false;
+    s.voice = false;
     store.saveSettings(s);
     await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 200)}`).catch(() => {});
   }
@@ -203,7 +199,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       await telegram.send(chatId,
         `*cakeagent*\nModel: \`${s.model}\`\nThinking: \`${s.thinkingLevel}\`\n` +
         `Groups: ${groups.length}\nActive tasks: ${tasks.filter(t => t.status === 'active').length}/${tasks.length}\n` +
-        `Voice in: ${s.voiceReceive ? 'on' : 'off'} | Voice reply: ${s.voiceReply ? 'on' : 'off'}\nUptime: ${uptime} min`
+        `Voice: ${s.voice ? 'on' : 'off'}\nUptime: ${uptime} min`
       );
       return true;
     }
@@ -366,7 +362,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
 
   if (msg.voiceFileId) {
-    if (currentSettings.voiceReceive) {
+    if (currentSettings.voice) {
       try {
         const audioBuffer = await telegram.downloadFile(msg.voiceFileId);
         const transcript = await transcribeAudio(audioBuffer, currentSettings);
@@ -456,10 +452,14 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
 
   if (result && result.trim() !== lastSentText) {
-    if (currentSettings.voiceReply && msg.voiceFileId) {
+    if (currentSettings.voice) {
       const audio = await synthesizeSpeech(result, currentSettings);
-      if (audio) await telegram.sendVoice(msg.chatId, audio);
-      else await telegram.send(msg.chatId, result);
+      if (audio) {
+        await telegram.sendVoice(msg.chatId, audio);
+        await telegram.send(msg.chatId, result);
+      } else {
+        await telegram.send(msg.chatId, result);
+      }
     } else {
       await telegram.send(msg.chatId, result);
     }
