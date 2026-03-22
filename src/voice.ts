@@ -7,6 +7,7 @@ import type { CakeSettings } from './types.js';
 
 let DATA_DIR = '';
 const WHISPER_LOCAL = resolve('whisper.cpp/build/bin/whisper-cli');
+const EDGE_TTS_LOCAL = '/opt/cakeagent/.local/bin/edge-tts';
 
 export function initVoice(dataDir: string): void {
   DATA_DIR = dataDir;
@@ -14,6 +15,10 @@ export function initVoice(dataDir: string): void {
 
 function whisperBin(): string {
   return existsSync(WHISPER_LOCAL) ? WHISPER_LOCAL : 'whisper-cli';
+}
+
+function edgeTtsBin(): string {
+  return existsSync(EDGE_TTS_LOCAL) ? EDGE_TTS_LOCAL : 'edge-tts';
 }
 
 function tmpPath(ext: string): string {
@@ -77,7 +82,7 @@ export async function synthesizeSpeech(
 
   try {
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
-    await execAsync('edge-tts', ['--voice', voice, '--text', text, '--write-media', mp3File]);
+    await execAsync(edgeTtsBin(), ['--voice', voice, '--text', text, '--write-media', mp3File]);
 
     if (!existsSync(mp3File)) {
       console.warn('[voice] edge-tts produced no output');
@@ -115,7 +120,7 @@ export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; mi
   }
 
   try {
-    await execAsync('edge-tts', ['--version']);
+    await execAsync(edgeTtsBin(), ['--version']);
     tts = true;
   } catch { missing.push('edge-tts (run: pip3 install edge-tts)'); }
 
