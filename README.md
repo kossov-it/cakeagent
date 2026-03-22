@@ -1,6 +1,10 @@
 # 🍰 CakeAgent
 
 [![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
+![Lines](https://img.shields.io/badge/source-1%2C750_lines-blue)
+![Files](https://img.shields.io/badge/files-9-blue)
+![Deps](https://img.shields.io/badge/deps-3-green)
+![Size](https://img.shields.io/badge/source_size-63KB-blue)
 
 **A personal AI agent in 1,750 lines of code.**
 
@@ -11,13 +15,18 @@ Single Node.js process. 3 dependencies. Dedicated system user. Sandboxed by syst
 ### Quick start
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/kossov-it/cakeagent/main/install.sh | sudo bash
+```
+
+Or manually:
+```bash
 git clone https://github.com/kossov-it/cakeagent.git /tmp/cakeagent
 cd /tmp/cakeagent && sudo bash setup.sh
 ```
 
-The script creates a `cakeagent` system user, installs everything to `/opt/cakeagent`, asks for your Telegram bot token and Claude auth, and starts the service. Send a message to your bot — it guides you through the rest.
+Creates a `cakeagent` system user, installs to `/opt/cakeagent`, asks for credentials, starts the service. Send a message to your bot — it guides you through the rest.
 
-To uninstall (removes everything — user, service, data, no traces):
+Uninstall (removes everything — user, service, data, no traces):
 ```bash
 sudo bash /opt/cakeagent/setup.sh uninstall
 ```
