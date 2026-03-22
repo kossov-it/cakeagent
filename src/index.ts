@@ -100,12 +100,43 @@ checkVoiceDeps().then(({ missing }) => {
 const VALID_MODELS = new Set(['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5-20251001']);
 const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
 
-function handleSettingsCallback(data: string, settings: CakeSettings): CakeSettings {
+async function handleSettingsCallback(data: string, settings: CakeSettings, chatId: string): Promise<CakeSettings> {
   const [key, val] = data.split(':');
   if (key === 'model' && VALID_MODELS.has(val)) settings.model = val;
   else if (key === 'thinking' && VALID_THINKING.has(val)) settings.thinkingLevel = val;
-  else if (key === 'voice') settings.voiceReceive = !settings.voiceReceive;
-  else if (key === 'voiceReply') settings.voiceReply = !settings.voiceReply;
+  else if (key === 'voice') {
+    settings.voiceReceive = !settings.voiceReceive;
+    if (settings.voiceReceive) {
+      await telegram.send(chatId, 'Setting up voice input (STT)...');
+      try {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe' });
+        const modelsDir = join(config.dataDir, 'models');
+        mkdirSync(modelsDir, { recursive: true });
+        if (!existsSync(join(modelsDir, 'ggml-base.bin'))) {
+          execFileSync('curl', ['-L', '-o', join(modelsDir, 'ggml-base.bin'), 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin'], { timeout: 300_000, stdio: 'pipe' });
+        }
+        await telegram.send(chatId, 'Voice input ready.');
+      } catch (err) {
+        await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 150)}`);
+        settings.voiceReceive = false;
+      }
+    }
+  } else if (key === 'voiceReply') {
+    settings.voiceReply = !settings.voiceReply;
+    if (settings.voiceReply) {
+      await telegram.send(chatId, 'Setting up voice output (TTS)...');
+      try {
+        const { execFileSync } = await import('node:child_process');
+        execFileSync('sudo', ['apt-get', 'install', '-y', 'ffmpeg'], { timeout: 120_000, stdio: 'pipe' });
+        execFileSync('npm', ['i', 'edge-tts'], { cwd: '/opt/cakeagent', timeout: 60_000, stdio: 'pipe' });
+        await telegram.send(chatId, 'Voice output ready.');
+      } catch (err) {
+        await telegram.send(chatId, `Voice setup failed: ${(err as Error).message.slice(0, 150)}`);
+        settings.voiceReply = false;
+      }
+    }
+  }
   store.saveSettings(settings);
   return settings;
 }
@@ -279,9 +310,9 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   if (update.type === 'callback_query' && update.callbackQuery) {
     const cq = update.callbackQuery;
     let s = store.loadSettings();
-    s = handleSettingsCallback(cq.data, s);
+    await telegram.answerCallback(cq.id);
+    s = await handleSettingsCallback(cq.data, s, cq.chatId);
     await telegram.updateSettingsKeyboard(cq.chatId, cq.messageId, s);
-    await telegram.answerCallback(cq.id, 'Updated');
     return;
   }
 

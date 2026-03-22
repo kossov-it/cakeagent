@@ -14,15 +14,11 @@ RestartSec=10
 
 EnvironmentFile=/opt/cakeagent/.env
 
-# Security: dedicated user, filesystem restrictions, kernel hardening
-ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-# Agent workspace + apt package paths (sudo apt needs /usr, /var, /etc)
-ReadWritePaths=/opt /usr /var /etc
 
 StandardOutput=journal
 StandardError=journal
