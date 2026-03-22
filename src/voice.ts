@@ -87,9 +87,20 @@ export async function synthesizeSpeech(
     }
 
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
+    const ttsOpts = { voice };
 
     let mp3Written = false;
-    if (mod.EdgeTTS) {
+    // edge-tts v1.x API: ttsSave(text, file, opts) or tts(text, opts) → Buffer
+    if (!mp3Written && typeof mod.ttsSave === 'function') {
+      await mod.ttsSave(text, mp3File, ttsOpts);
+      mp3Written = existsSync(mp3File);
+    }
+    if (!mp3Written && typeof mod.tts === 'function') {
+      const buf = await mod.tts(text, ttsOpts);
+      if (buf && buf.length > 0) { writeFileSync(mp3File, buf); mp3Written = true; }
+    }
+    // Older API variants
+    if (!mp3Written && mod.EdgeTTS) {
       const tts = new mod.EdgeTTS();
       await tts.synthesize(text, voice, { outputFile: mp3File });
       mp3Written = existsSync(mp3File);

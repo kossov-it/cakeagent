@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure interactive input works even when piped (curl | bash)
-if [ ! -t 0 ] && [ -e /dev/tty ]; then
+# For interactive install (curl | bash), redirect stdin from tty
+# Skip for non-interactive modes (update, uninstall from service)
+if [ "${1:-}" != "update" ] && [ "${1:-}" != "uninstall" ] && [ ! -t 0 ] && [ -e /dev/tty ]; then
   exec </dev/tty
 fi
 
