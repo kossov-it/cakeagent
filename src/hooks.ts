@@ -39,8 +39,8 @@ const BASH_DENY = [
   /\b(cat|less|more|head|tail)\b.*credentials\//,
   /\bsed\b.*\.env/,
 
-  // System administration — block mutations, allow diagnostics
-  /\bsystemctl\b.*\b(start|stop|restart|enable|disable|mask|unmask|daemon-reload)\b/,
+  // System administration — allow service management, protect critical services
+  /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking|nftables|firewalld|ufw)\b/,
   /\breboot\b/,
   /\bshutdown\b/,
   /\bpasswd\b/,

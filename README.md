@@ -187,7 +187,7 @@ CakeAgent gives Claude real system access — it installs packages, writes files
 
 ```
 Layer 1 — OS         systemd sandbox + dedicated user
-Layer 2 — Sudoers    Whitelist: apt-get, apt, dpkg, setup.sh
+Layer 2 — Sudoers    Whitelist: apt-get, apt, dpkg, systemctl, setup.sh
 Layer 3 — Hooks      PreToolUse validators on every tool call
 Layer 4 — Agent      acceptEdits mode, turn limit, sender allowlist
 ```
@@ -200,12 +200,12 @@ Each layer is independent. A bypass at one layer is caught by the next.
 |--------|-------------|
 | Install system packages | `sudo apt-get install -y <pkg>` (sudoers whitelist) |
 | Install npm packages | `npm install <pkg>` (no sudo needed) |
+| Manage services | `sudo systemctl start/restart/enable <svc>` (critical services blocked) |
 | Read and write project files | Within `/opt/cakeagent` (systemd `ReadWritePaths`) |
 | Run bash commands | Validated by PreToolUse hook before execution |
 | Add MCP integrations | Writes to `.mcp.json`, loads on next message |
 | Download files | `curl` without sudo — writes to agent-owned paths only |
 | Schedule tasks | Persisted in SQLite, executed by orchestrator |
-| Check service status | `systemctl status` (read-only, mutations blocked) |
 
 ### What's blocked
 
@@ -218,7 +218,7 @@ Each layer is independent. A bypass at one layer is caught by the next.
 | Read secrets (`.env`, `.ssh/`, `.pem`, credentials) | Hook: Read + Grep file guard |
 | Enumerate sensitive dirs (`.ssh/`, `credentials/`) | Hook: Glob path guard |
 | Write to config (CLAUDE.md, `.env`, `/etc/`) | Hook: Write/Edit file guard |
-| Service mutations (`systemctl restart/stop/enable`) | Hook: bash deny list |
+| Manage critical services (sshd, cakeagent, networking, firewall) | Hook: bash deny list |
 | Chained destructive rm (`; rm -rf /`) | Hook: bash deny list |
 | User/password management | Hook: bash deny list |
 | Firewall changes (iptables, nftables) | Hook: bash deny list |
