@@ -8,7 +8,7 @@ Type=simple
 User=cakeagent
 Group=cakeagent
 WorkingDirectory=/opt/cakeagent
-ExecStart=/usr/bin/node dist/index.js
+ExecStart=/usr/bin/node dist/src/index.js
 Restart=on-failure
 RestartSec=10
 
