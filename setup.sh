@@ -110,29 +110,26 @@ if [ "$AUTH_CHOICE" = "2" ]; then
   read -rsp "   API key (hidden): " API_KEY
   echo ""
 else
-  if ! command -v claude &>/dev/null; then
-    echo ""
-    echo "   Claude Code CLI is required for subscription auth."
-    echo "   Install: npm install -g @anthropic-ai/claude-code"
-    echo ""
-    read -rp "   Install it now? [Y/n]: " INSTALL_CLAUDE
-    INSTALL_CLAUDE_LOWER=$(echo "$INSTALL_CLAUDE" | tr '[:upper:]' '[:lower:]')
-    if [ "$INSTALL_CLAUDE_LOWER" != "n" ]; then
-      npm install -g @anthropic-ai/claude-code
-    else
-      echo "   ⚠️  Skipped. Install later and run: claude auth login"
+  ALREADY_AUTH=false
+  if command -v claude &>/dev/null; then
+    if claude auth status 2>&1 | grep -qi "logged in\|authenticated"; then
+      echo "   ✅ Already authenticated via Claude subscription"
+      ALREADY_AUTH=true
     fi
   fi
 
-  if command -v claude &>/dev/null; then
+  if [ "$ALREADY_AUTH" = "false" ]; then
     echo ""
-    echo "   Checking auth status..."
-    if claude auth status 2>&1 | grep -q "Logged in"; then
-      echo "   ✅ Already authenticated"
-    else
-      echo "   Opening login (a browser URL will appear)..."
-      claude auth login --claudeai || echo "   ⚠️  Login failed. Retry with: claude auth login"
-    fi
+    echo "   Claude subscription requires interactive auth."
+    echo "   After setup completes, run one of these:"
+    echo ""
+    echo "     claude auth login          # If you have a browser"
+    echo "     claude setup-token         # Headless server (paste a token)"
+    echo ""
+    echo "   Setup will continue without auth — CakeAgent won't start until"
+    echo "   you authenticate or set ANTHROPIC_API_KEY in .env"
+    echo ""
+    read -rp "   Press Enter to continue..."
   fi
 fi
 
