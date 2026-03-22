@@ -333,13 +333,8 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
   }
   const messagesXml = formatPrompt(recent);
 
-  let prompt = messagesXml;
-  if (existsSync(memPath)) {
-    const memory = readFileSync(memPath, 'utf-8').trim();
-    if (memory) {
-      prompt = `[MEMORY — your persistent notes and learned user preferences]\n${memory}\n[/MEMORY]\n\n${messagesXml}`;
-    }
-  }
+  const memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
+  const prompt = `[MEMORY]\n${memory || '(empty)'}\n[/MEMORY]\n\n${messagesXml}`;
 
   if (agentBusy) return;
   agentBusy = true;
