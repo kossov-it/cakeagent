@@ -14,11 +14,13 @@ RestartSec=10
 
 EnvironmentFile=/opt/cakeagent/.env
 
+ProtectSystem=full
 ProtectHome=true
 PrivateTmp=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
+ReadWritePaths=/opt /usr /var /etc
 
 StandardOutput=journal
 StandardError=journal

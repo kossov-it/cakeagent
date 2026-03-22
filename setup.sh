@@ -10,12 +10,32 @@ INSTALL_DIR="/opt/cakeagent"
 SERVICE_USER="cakeagent"
 SERVICE_NAME="cakeagent"
 
+# --- Update service file only (called by /update command) ---
+if [ "${1:-}" = "update-service" ]; then
+  NODE_PATH_DIR=$(dirname "$(command -v node)")
+  sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
+      -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
+      -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
+      -e "/\[Service\]/a Environment=PATH=${NODE_PATH_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      "$INSTALL_DIR/cakeagent.service" > "/etc/systemd/system/${SERVICE_NAME}.service"
+  systemctl daemon-reload
+  exit 0
+fi
+
 # --- Update ---
 if [ "${1:-}" = "update" ]; then
   echo "🍰 Updating CakeAgent..."
   cd "$INSTALL_DIR"
   sudo -u "$SERVICE_USER" git pull
   sudo -u "$SERVICE_USER" npm run build
+  # Always refresh the service file to prevent stale configs
+  NODE_PATH_DIR=$(dirname "$(command -v node)")
+  sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
+      -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
+      -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
+      -e "/\[Service\]/a Environment=PATH=${NODE_PATH_DIR}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      "$INSTALL_DIR/cakeagent.service" | sudo tee "/etc/systemd/system/${SERVICE_NAME}.service" > /dev/null
+  sudo systemctl daemon-reload
   sudo systemctl restart "$SERVICE_NAME"
   echo "✅ Updated and restarted."
   exit 0
@@ -123,7 +143,7 @@ echo ""
 echo "5️⃣  Configuring agent permissions..."
 
 SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
-echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt" | sudo tee "$SUDOERS_FILE" > /dev/null
+echo "$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/bash $INSTALL_DIR/setup.sh update-service" | sudo tee "$SUDOERS_FILE" > /dev/null
 sudo chmod 440 "$SUDOERS_FILE"
 echo "   ✅ Agent can install system packages"
 

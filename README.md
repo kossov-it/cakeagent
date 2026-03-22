@@ -165,7 +165,7 @@ CakeAgent runs as a dedicated `cakeagent` system user with a nologin shell. It c
 |------------|-----|
 | **No open ports** | Outbound connections only (Telegram long poll, MCP registry) |
 | **System user isolation** | `cakeagent` user, no login shell, no home directory access |
-| **systemd sandbox** | `ProtectHome`, `PrivateTmp`, kernel module/tunable protection |
+| **systemd sandbox** | `ProtectSystem=full`, `ProtectHome`, `PrivateTmp`, kernel hardening |
 | **Sudoers whitelist** | Only `apt-get` and `apt` — nothing else |
 | **Bash command validation** | PreToolUse hook blocks injection patterns, reverse shells, secret reads |
 | **File read guard** | Blocks access to `.env`, `.ssh/`, credentials, SSH keys, `/etc/shadow` |
