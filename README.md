@@ -86,12 +86,18 @@ The script handles everything:
 | 2 | Creates a dedicated `cakeagent` system user |
 | 3 | Installs to `/opt/cakeagent` |
 | 4 | Installs Node.js + voice dependencies |
-| 5 | Installs ffmpeg |
-| 6 | Configures passwordless `sudo apt` for the agent |
-| 7 | Asks for Telegram bot token (validates it) |
-| 8 | Asks for Telegram user ID |
-| 9 | Asks for Claude auth (subscription token or API key) |
-| 10 | Installs and starts the systemd service |
+| 5 | Configures passwordless `sudo apt` for the agent |
+| 6 | Asks for Telegram bot token ([get from @BotFather](https://t.me/BotFather)) |
+| 7 | Asks for Telegram user ID ([get from @userinfobot](https://t.me/userinfobot)) |
+| 8 | Asks for Claude auth — see below |
+| 9 | Installs and starts the systemd service |
+
+**Claude authentication** (step 8 offers two options):
+
+| Option | How to get it | Env var |
+|--------|---------------|---------|
+| **Subscription token** (recommended) | Install [Claude Code](https://www.npmjs.com/package/@anthropic-ai/claude-code): `npm i -g @anthropic-ai/claude-code`, then run `claude setup-token` — copy the `sk-ant-oat...` token (valid 1 year) | `CLAUDE_CODE_OAUTH_TOKEN` |
+| **API key** (pay-per-use) | Create at [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) — copy the `sk-ant-api...` key | `ANTHROPIC_API_KEY` |
 
 After setup, send a message to your bot on Telegram. CakeAgent guides you through personalization (name, personality, voice, integrations) via chat.
 
