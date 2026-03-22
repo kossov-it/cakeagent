@@ -87,13 +87,7 @@ echo "3️⃣  Installing to $INSTALL_DIR..."
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 if [ "$SCRIPT_DIR" != "$INSTALL_DIR" ]; then
-  sudo cp -r "$SCRIPT_DIR"/src "$SCRIPT_DIR"/channels "$SCRIPT_DIR"/groups \
-    "$SCRIPT_DIR"/package.json "$SCRIPT_DIR"/tsconfig.json \
-    "$SCRIPT_DIR"/cakeagent.service "$SCRIPT_DIR"/setup.sh \
-    "$INSTALL_DIR/"
-  sudo cp "$SCRIPT_DIR"/package-lock.json "$SCRIPT_DIR"/.env.example \
-    "$SCRIPT_DIR"/.gitignore "$SCRIPT_DIR"/README.md "$SCRIPT_DIR"/CLAUDE.md \
-    "$INSTALL_DIR/" 2>/dev/null || true
+  sudo cp -a "$SCRIPT_DIR"/. "$INSTALL_DIR/"
   sudo chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 fi
 

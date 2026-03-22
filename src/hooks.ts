@@ -37,6 +37,8 @@ const PROTECTED_PATHS = [
   /credentials\//,
   /\.ssh\//,
   /\/etc\//,
+  /\.pem$/,
+  /id_rsa/,
 ];
 
 /**
