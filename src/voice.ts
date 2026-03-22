@@ -76,28 +76,11 @@ export async function synthesizeSpeech(
   const oggFile = tmpPath('ogg');
 
   try {
-    // edge-tts v1.0.1 API: ttsSave(text, file, { voice }) → Promise<void>
-    let mod: any = null;
-    for (const p of ['edge-tts', 'edge-tts/out/index.js'] as string[]) {
-      try { mod = await import(p); } catch { /* try next */ }
-      if (mod) break;
-    }
-    if (!mod) {
-      console.warn('[voice] edge-tts not installed');
-      return null;
-    }
-
-    const m = mod.default ?? mod;
-    if (typeof m.ttsSave !== 'function') {
-      console.warn('[voice] edge-tts: ttsSave not found — unexpected package version');
-      return null;
-    }
-
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
-    await m.ttsSave(text, mp3File, { voice });
+    await execAsync('edge-tts', ['--voice', voice, '--text', text, '--write-media', mp3File]);
 
     if (!existsSync(mp3File)) {
-      console.warn('[voice] edge-tts: ttsSave produced no output');
+      console.warn('[voice] edge-tts produced no output');
       return null;
     }
 
@@ -132,10 +115,9 @@ export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; mi
   }
 
   try {
-    const pkg = 'edge-tts';
-    await import(pkg);
+    await execAsync('edge-tts', ['--version']);
     tts = true;
-  } catch { missing.push('edge-tts (run: npm i edge-tts)'); }
+  } catch { missing.push('edge-tts (run: pip3 install edge-tts)'); }
 
   return { stt, tts, missing };
 }

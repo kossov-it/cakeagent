@@ -169,8 +169,9 @@ async function installVoiceDeps(chatId: string): Promise<void> {
       await runCmd('cmake', ['--build', buildDir, '--config', 'Release', '-j4'], { timeout: 600_000 });
     }
 
-    // TTS: edge-tts
-    await runCmd('npm', ['install', 'edge-tts', '--no-fund', '--no-audit']);
+    // TTS: Python edge-tts (npm version is abandoned)
+    await apt(['python3-pip']);
+    await runCmd('pip3', ['install', '--break-system-packages', 'edge-tts']);
 
     const s = store.loadSettings();
     s.voice = true;
