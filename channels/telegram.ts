@@ -149,11 +149,17 @@ export function createTelegramChannel(
                 message: {
                   id: `tg_${m.message_id}_${chatId}`,
                   text: m.text ?? m.caption
-                    ?? (m.photo ? '[Photo — no caption]' : null)
+                    ?? (m.photo ? '[Photo]' : null)
                     ?? (m.document ? `[Document: ${m.document.file_name ?? 'file'}]` : null)
                     ?? (m.sticker ? `[Sticker${m.sticker.emoji ? ': ' + m.sticker.emoji : ''}]` : null)
+                    ?? (m.contact ? `[Contact: ${m.contact.first_name}${m.contact.last_name ? ' ' + m.contact.last_name : ''} — ${m.contact.phone_number}]` : null)
+                    ?? (m.location ? `[Location: ${m.location.latitude}, ${m.location.longitude}]` : null)
+                    ?? (m.poll ? `[Poll: "${m.poll.question}" — ${m.poll.options?.map((o: any) => o.text).join(', ')}]` : null)
                     ?? undefined,
                   voiceFileId: m.voice?.file_id ?? m.audio?.file_id ?? undefined,
+                  photoFileId: m.photo ? m.photo[m.photo.length - 1]?.file_id : undefined,
+                  documentFileId: m.document?.file_id ?? undefined,
+                  documentName: m.document?.file_name ?? undefined,
                   senderId: String(m.from?.id ?? ''),
                   senderName: m.from?.first_name ?? 'Unknown',
                   chatId,

@@ -4,6 +4,9 @@ export interface IncomingMessage {
   id: string;
   text?: string;
   voiceFileId?: string;
+  photoFileId?: string;
+  documentFileId?: string;
+  documentName?: string;
   senderId: string;
   senderName: string;
   chatId: string;

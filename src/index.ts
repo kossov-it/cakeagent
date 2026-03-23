@@ -451,6 +451,26 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
       }
     }
 
+    // Photo/document download — save file so agent can access it via Read tool
+    if (msg.photoFileId || msg.documentFileId) {
+      try {
+        const fileId = (msg.photoFileId ?? msg.documentFileId)!;
+        const ext = msg.photoFileId ? 'jpg' : (msg.documentName?.split('.').pop() ?? 'bin');
+        const filename = `${Date.now()}.${ext}`;
+        const downloadDir = join(config.dataDir, 'downloads');
+        mkdirSync(downloadDir, { recursive: true });
+        const filePath = join(downloadDir, filename);
+        const buffer = await telegram.downloadFile(fileId);
+        writeFileSync(filePath, buffer);
+        const label = msg.photoFileId ? 'Photo' : `Document: ${msg.documentName ?? 'file'}`;
+        msg.text = `${msg.text ?? ''}\n[${label} saved to ${filePath} — use Read tool to view it]`.trim();
+        store.saveMessage(msg, msg.text);
+      } catch (err) {
+        console.error('[file] Download failed:', (err as Error).message);
+        msg.text = `${msg.text ?? ''}\n[File download failed: ${(err as Error).message.slice(0, 100)}]`.trim();
+      }
+    }
+
     // Injection detection — flag for the agent, don't block (M3)
     let injectionWarning = '';
     if (msg.text) {
