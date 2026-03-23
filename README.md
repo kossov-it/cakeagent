@@ -1,5 +1,5 @@
 <p align="center">
-  <img src=".github/banner.jpg" alt="CakeAgent" width="600">
+  <img src=".github/banner.jpg" alt="CakeAgent" style="max-width: 600px; width: 100%;">
 </p>
 
 # 🍰 CakeAgent
