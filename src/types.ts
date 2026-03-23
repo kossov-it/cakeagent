@@ -82,7 +82,6 @@ export interface AgentRunParams {
   prompt: string;
   groupFolder: string;
   chatId: string;
-  isMain: boolean;
   sessionId?: string;
 }
 
@@ -117,6 +116,10 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   rateLimitWindow: 60_000,
   agentTimeoutMs: 300_000,
 };
+
+export const VALID_MODELS = new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']);
+export const VALID_THINKING_LEVELS = new Set(['off', 'low', 'medium', 'high']);
+export const VALID_TTS_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2,4}-\w+Neural$/;
 
 // === Shared State ===
 

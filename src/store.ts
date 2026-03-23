@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import type { IncomingMessage, RegisteredGroup, ScheduledTask, CakeSettings } from './types.js';
 import { DEFAULT_SETTINGS } from './types.js';
@@ -94,7 +94,7 @@ export function getMessagesSince(chatId: string, since: number, limit = 50): Arr
   return db.prepare(
     `SELECT sender_name, content, timestamp FROM messages
      WHERE chat_id = ? AND timestamp > ? ORDER BY timestamp DESC LIMIT ?`
-  ).all(chatId, since, limit) as any[];
+  ).all(chatId, since, limit) as Array<{ sender_name: string; content: string; timestamp: number }>;
 }
 
 // --- Groups ---
@@ -134,12 +134,18 @@ export function addSchedule(task: Omit<ScheduledTask, 'id' | 'lastRun' | 'lastEr
   return Number(result.lastInsertRowid);
 }
 
+const SCHEDULE_SELECT = `SELECT id, group_folder as groupFolder, chat_id as chatId, task,
+  schedule_type as scheduleType, schedule_value as scheduleValue,
+  context_mode as contextMode, next_run as nextRun, status,
+  last_run as lastRun, last_error as lastError, created_at as createdAt
+  FROM schedules`;
+
 export function getDueSchedules(now: string): ScheduledTask[] {
-  return db.prepare(`SELECT * FROM schedules WHERE next_run <= ? AND status = 'active'`).all(now) as any[];
+  return db.prepare(`${SCHEDULE_SELECT} WHERE next_run <= ? AND status = 'active'`).all(now) as ScheduledTask[];
 }
 
 export function getAllSchedules(): ScheduledTask[] {
-  return db.prepare(`SELECT * FROM schedules WHERE status != 'completed'`).all() as any[];
+  return db.prepare(`${SCHEDULE_SELECT} WHERE status != 'completed'`).all() as ScheduledTask[];
 }
 
 const SCHEDULE_COLUMNS: Record<string, string> = {
@@ -204,13 +210,20 @@ export function loadSettings(): CakeSettings {
       delete raw.voice;
     }
     return { ...DEFAULT_SETTINGS, ...raw };
-  } catch {
+  } catch (err) {
+    console.error('[store] settings.json is corrupt — using defaults:', (err as Error).message);
     return { ...DEFAULT_SETTINGS };
   }
 }
 
+function writeAtomic(filePath: string, data: string): void {
+  const tmp = filePath + '.tmp';
+  writeFileSync(tmp, data);
+  renameSync(tmp, filePath);
+}
+
 export function saveSettings(settings: CakeSettings): void {
-  writeFileSync(join(dataDir, 'settings.json'), JSON.stringify(settings, null, 2));
+  writeAtomic(join(dataDir, 'settings.json'), JSON.stringify(settings, null, 2));
 }
 
 // --- Pruning ---
@@ -234,13 +247,18 @@ interface SkillMeta { owner: string; repo: string; skill: string; installedAt: s
 export function loadSkillIndex(): Record<string, SkillMeta> {
   const path = join(dataDir, 'skills', 'index.json');
   if (!existsSync(path)) return {};
-  try { return JSON.parse(readFileSync(path, 'utf-8')); } catch { return {}; }
+  try {
+    return JSON.parse(readFileSync(path, 'utf-8'));
+  } catch (err) {
+    console.error('[store] skills/index.json is corrupt — treating as empty:', (err as Error).message);
+    return {};
+  }
 }
 
 export function saveSkillIndex(index: Record<string, SkillMeta>): void {
   const dir = join(dataDir, 'skills');
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, 'index.json'), JSON.stringify(index, null, 2));
+  writeAtomic(join(dir, 'index.json'), JSON.stringify(index, null, 2));
 }
 
 export function loadAllSkills(): string {
@@ -269,6 +287,8 @@ export function setKv(key: string, value: string): void {
 }
 
 // --- Cleanup ---
+
+export const MAX_MEMORY_SIZE = 50 * 1024; // 50 KB
 
 export function closeDb(): void {
   db?.close();

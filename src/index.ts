@@ -296,10 +296,14 @@ function shouldTrigger(msg: IncomingMessage, groupFolder: string): boolean {
   return msg.text?.toLowerCase().includes(pattern.toLowerCase()) ?? false;
 }
 
+function escapeXml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 function formatPrompt(messages: Array<{ sender_name: string; content: string; timestamp: number }>): string {
   return [...messages].reverse().map(m => {
     const time = new Date(m.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-    return `<message sender="${m.sender_name}" time="${time}">${m.content}</message>`;
+    return `<message sender="${escapeXml(m.sender_name)}" time="${time}">${escapeXml(m.content)}</message>`;
   }).join('\n');
 }
 
@@ -320,7 +324,7 @@ const schedulerInterval = setInterval(async () => {
       const currentSettings = store.loadSettings();
 
       const { result } = await runAgent(
-        { prompt, groupFolder: task.groupFolder, chatId: task.chatId, isMain: task.groupFolder === 'main', sessionId },
+        { prompt, groupFolder: task.groupFolder, chatId: task.chatId, sessionId },
         { picoServer, hooks, settings: currentSettings, groupsDir },
       );
 
@@ -340,8 +344,10 @@ const schedulerInterval = setInterval(async () => {
         store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
       }
     } catch (err) {
-      console.error(`[scheduler] Task #${task.id} failed:`, (err as Error).message);
-      store.updateSchedule(task.id, { lastError: (err as Error).message } as any);
+      const errMsg = (err as Error).message;
+      console.error(`[scheduler] Task #${task.id} failed:`, errMsg);
+      store.updateSchedule(task.id, { lastError: errMsg } as any);
+      telegram.send(task.chatId, `Scheduled task #${task.id} failed: ${errMsg.slice(0, 200)}`).catch(() => {});
     } finally {
       agentBusy = false;
     }
@@ -469,7 +475,11 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     }
     const messagesXml = formatPrompt(recent);
 
-    const memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
+    let memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
+    if (memory.length > store.MAX_MEMORY_SIZE) {
+      console.warn(`[memory] memory.md is ${memory.length} bytes (max ${store.MAX_MEMORY_SIZE}) — truncating`);
+      memory = memory.slice(0, store.MAX_MEMORY_SIZE);
+    }
     const skills = store.loadAllSkills();
     const prompt = `[MEMORY]\n${memory || '(empty)'}\n[/MEMORY]${skills ? `\n[SKILLS]\n${skills}\n[/SKILLS]` : ''}${injectionWarning}\n\n${messagesXml}`;
 
@@ -478,7 +488,7 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
     let lastSentText = '';
 
     const { sessionId: newSessionId, result } = await runAgent(
-      { prompt, groupFolder, chatId: msg.chatId, isMain: groupFolder === 'main', sessionId },
+      { prompt, groupFolder, chatId: msg.chatId, sessionId },
       { picoServer, hooks, settings: currentSettings, groupsDir },
       async (text) => {
         telegram.stopTyping();
@@ -540,6 +550,10 @@ async function shutdown() {
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
+process.on('unhandledRejection', (err) => {
+  console.error('[cakeagent] Unhandled rejection:', err);
+  store.logAudit('unhandled_rejection', String(err));
+});
 
 main().catch(err => {
   console.error('[cakeagent] Fatal error:', err);

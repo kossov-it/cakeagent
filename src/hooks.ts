@@ -1,7 +1,13 @@
+import type { PreToolUseHookInput, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
 import type { SharedState } from './types.js';
 import { logAudit } from './store.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+// Normalize command for pattern matching — strip quotes to prevent bypass
+function normalizeCommand(cmd: string): string {
+  return cmd.replace(/["'\\]/g, '');
+}
 
 // Deny patterns for Bash commands — defense-in-depth layer
 // Primary security: systemd sandboxing + limited sudoers + file path hooks
@@ -44,6 +50,7 @@ const BASH_DENY = [
 
   // System administration — allow service management, protect critical services
   /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking|nftables|firewalld|ufw)\b/,
+  /\bsystemctl\b.*\bmask\b/,             // persistent service disable
   /\breboot\b/,
   /\bshutdown\b/,
   /\bpasswd\b/,
@@ -96,9 +103,10 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
     PreToolUse: [
       {
         matcher: '^Bash$',
-        hooks: [async (input: any) => {
-          const command: string = input.tool_input?.command ?? '';
-          const denied = BASH_DENY.find(p => p.test(command));
+        hooks: [async (input: PreToolUseHookInput) => {
+          const command: string = (input.tool_input as { command?: string })?.command ?? '';
+          const normalized = normalizeCommand(command);
+          const denied = BASH_DENY.find(p => p.test(normalized));
           if (denied) {
             logAudit('bash_denied', command.slice(0, 500));
             return {
@@ -120,8 +128,8 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
       {
         matcher: '^Read$',
-        hooks: [async (input: any) => {
-          const filePath: string = input.tool_input?.file_path ?? '';
+        hooks: [async (input: PreToolUseHookInput) => {
+          const filePath: string = (input.tool_input as { file_path?: string })?.file_path ?? '';
           const blocked = SENSITIVE_PATHS.find(p => p.test(filePath));
           if (blocked) {
             logAudit('read_denied', filePath);
@@ -143,8 +151,8 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
       {
         matcher: '^Grep$',
-        hooks: [async (input: any) => {
-          const searchPath: string = input.tool_input?.path ?? '';
+        hooks: [async (input: PreToolUseHookInput) => {
+          const searchPath: string = (input.tool_input as { path?: string })?.path ?? '';
           const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
           if (blocked) {
             logAudit('grep_denied', searchPath);
@@ -166,9 +174,9 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
       {
         matcher: '^Glob$',
-        hooks: [async (input: any) => {
-          const searchPath: string = input.tool_input?.path ?? '';
-          const blocked = [/\.ssh\//, /credentials\//, /\.env$/, /\.pem$/].find(p => p.test(searchPath));
+        hooks: [async (input: PreToolUseHookInput) => {
+          const searchPath: string = (input.tool_input as { path?: string })?.path ?? '';
+          const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
           if (blocked) {
             logAudit('glob_denied', searchPath);
             return {
@@ -189,8 +197,8 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
       {
         matcher: '^(Write|Edit)$',
-        hooks: [async (input: any) => {
-          const filePath: string = input.tool_input?.file_path ?? '';
+        hooks: [async (input: PreToolUseHookInput) => {
+          const filePath: string = (input.tool_input as { file_path?: string })?.file_path ?? '';
           const blocked = PROTECTED_PATHS.find(p => p.test(filePath));
           if (blocked) {
             logAudit('file_denied', filePath);
@@ -215,7 +223,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
     PreCompact: [
       {
         matcher: '.*',
-        hooks: [async (input: any) => {
+        hooks: [async (input: PreCompactHookInput) => {
           try {
             const sessionId = input.session_id ?? 'unknown';
             const groupFolder = state.currentGroupFolder ?? 'main';

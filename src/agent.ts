@@ -1,27 +1,17 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { HookCallbackMatcher } from '@anthropic-ai/claude-agent-sdk';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { AgentRunParams, CakeSettings } from './types.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 
-interface HookHandler {
-  matcher: string;
-  hooks: Array<(input: unknown) => Promise<unknown>>;
-}
-
 interface AgentDeps {
   picoServer: ReturnType<typeof import('@anthropic-ai/claude-agent-sdk').createSdkMcpServer>;
-  hooks: Record<string, HookHandler[]>;
+  hooks: Record<string, HookCallbackMatcher[]>;
   settings: CakeSettings;
   groupsDir: string;
 }
-
-// SDK streaming types don't expose all fields on the discriminated union.
-// These interfaces match the actual runtime shape for the message types we consume.
-interface SdkInitMessage { type: 'system'; subtype: 'init'; session_id?: string }
-interface SdkAssistantMessage { type: 'assistant'; message?: { content?: Array<{ type: string; text?: string }> } }
-interface SdkResultMessage { type: 'result'; result?: string }
 
 export async function runAgent(
   params: AgentRunParams,
@@ -35,7 +25,9 @@ export async function runAgent(
     try {
       const raw = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8'));
       externalMcp = raw.mcpServers ?? {};
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('[agent] .mcp.json is corrupt — starting without external MCP servers:', (err as Error).message);
+    }
   }
 
   let sessionId = params.sessionId ?? '';
@@ -75,11 +67,11 @@ export async function runAgent(
       },
     })) {
       if (message.type === 'system' && message.subtype === 'init') {
-        sessionId = (message as unknown as SdkInitMessage).session_id ?? sessionId;
+        sessionId = message.session_id ?? sessionId;
       }
 
       if (message.type === 'assistant' && onText) {
-        const content = (message as unknown as SdkAssistantMessage).message?.content;
+        const content = message.message?.content;
         if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === 'text' && block.text) {
@@ -94,7 +86,12 @@ export async function runAgent(
       }
 
       if (message.type === 'result') {
-        result = (message as unknown as SdkResultMessage).result ?? '';
+        if (message.subtype === 'success') {
+          result = message.result ?? '';
+        } else {
+          result = ('errors' in message && Array.isArray(message.errors) ? message.errors[0] : null)
+            ?? `Agent stopped: ${message.subtype}`;
+        }
       }
     }
   } finally {

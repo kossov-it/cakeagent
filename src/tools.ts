@@ -1,10 +1,10 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk';
 import * as z from 'zod';
-import { readFileSync, writeFileSync, existsSync, appendFileSync, mkdirSync, unlinkSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import * as store from './store.js';
 import type { SharedState, CakeSettings } from './types.js';
-import { DEFAULT_SETTINGS } from './types.js';
+import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE } from './types.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
@@ -146,17 +146,21 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             return { content: [{ type: 'text' as const, text: `Denied: command "${toolArgs.command}" not in allowed list: ${[...ALLOWED_COMMANDS].join(', ')}` }] };
           }
 
-          const DANGEROUS_ARG_PATTERNS = [/--eval\b/, /-e\s/, /-c\s/, /\$\(/, /`/, /\|\s*sh/, /;\s*rm/];
-          const dangerousArg = toolArgs.args.find(a => DANGEROUS_ARG_PATTERNS.some(p => p.test(a)));
-          if (dangerousArg) {
-            store.logAudit('tool_install_denied', `${toolArgs.name}: dangerous arg "${dangerousArg}"`);
-            return { content: [{ type: 'text' as const, text: `Denied: argument "${dangerousArg}" matches a dangerous pattern.` }] };
+          const DANGEROUS_ARG_PATTERNS = [/--eval\b/, /-e(\s|$)/, /-c(\s|$)/, /\$\(/, /`/, /\|\s*(ba)?sh\b/, /;\s*rm/];
+          const joined = [toolArgs.command, ...toolArgs.args].join(' ');
+          if (DANGEROUS_ARG_PATTERNS.some(p => p.test(joined))) {
+            store.logAudit('tool_install_denied', `${toolArgs.name}: dangerous pattern in "${joined.slice(0, 200)}"`);
+            return { content: [{ type: 'text' as const, text: `Denied: arguments match a dangerous pattern.` }] };
           }
 
           interface McpConfig { mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }
           let mcpConfig: McpConfig = { mcpServers: {} };
           if (existsSync(MCP_JSON_PATH)) {
-            try { mcpConfig = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8')) as McpConfig; } catch { /* start fresh */ }
+            try {
+              mcpConfig = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8')) as McpConfig;
+            } catch (err) {
+              console.error('[tools] .mcp.json is corrupt — starting fresh:', (err as Error).message);
+            }
           }
           mcpConfig.mcpServers ??= {};
           mcpConfig.mcpServers[toolArgs.name] = {
@@ -185,8 +189,10 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
               return { content: [{ type: 'text' as const, text: `Removed "${args.name}".` }] };
             }
             return { content: [{ type: 'text' as const, text: `Server "${args.name}" not found in .mcp.json.` }] };
-          } catch {
-            return { content: [{ type: 'text' as const, text: 'Error reading .mcp.json.' }] };
+          } catch (err) {
+            console.error('[tools] Error reading .mcp.json in remove_tool:', (err as Error).message);
+            store.logAudit('mcp_config_error', `remove_tool: ${(err as Error).message}`);
+            return { content: [{ type: 'text' as const, text: 'Error reading .mcp.json — config may be corrupt.' }] };
           }
         },
       ),
@@ -204,8 +210,9 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             if (names.length === 0) return { content: [{ type: 'text' as const, text: 'No external tools installed.' }] };
             const list = names.map(n => `- ${n}: ${servers[n].command} ${(servers[n].args ?? []).join(' ')}`).join('\n');
             return { content: [{ type: 'text' as const, text: list }] };
-          } catch {
-            return { content: [{ type: 'text' as const, text: 'Error reading .mcp.json.' }] };
+          } catch (err) {
+            console.error('[tools] Error reading .mcp.json in list_tools:', (err as Error).message);
+            return { content: [{ type: 'text' as const, text: 'Error reading .mcp.json — config may be corrupt.' }] };
           }
         },
       ),
@@ -232,6 +239,15 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           const k = args.key as keyof CakeSettings;
           if (!(k in DEFAULT_SETTINGS)) {
             return { content: [{ type: 'text' as const, text: `Unknown setting: ${args.key}` }] };
+          }
+          if (k === 'model' && !VALID_MODELS.has(args.value)) {
+            return { content: [{ type: 'text' as const, text: `Invalid model. Valid: ${[...VALID_MODELS].join(', ')}` }] };
+          }
+          if (k === 'thinkingLevel' && !VALID_THINKING_LEVELS.has(args.value)) {
+            return { content: [{ type: 'text' as const, text: `Invalid thinking level. Valid: ${[...VALID_THINKING_LEVELS].join(', ')}` }] };
+          }
+          if (k === 'voiceTtsVoice' && !VALID_TTS_VOICE_RE.test(args.value)) {
+            return { content: [{ type: 'text' as const, text: 'Invalid TTS voice format. Expected: xx-XX-NameNeural (e.g., en-US-AriaNeural)' }] };
           }
           const current = settings[k];
           if (typeof current === 'boolean') (settings as any)[k] = args.value === 'true';
@@ -301,7 +317,7 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           const name = rest[rest.length - 1];
 
           // Validate identifiers — prevent path traversal and SSRF
-          const IDENT_RE = /^[a-zA-Z0-9_.-]{1,100}$/;
+          const IDENT_RE = /^[a-zA-Z0-9_-]{1,100}$/;
           if (!IDENT_RE.test(owner) || !IDENT_RE.test(repo) || !IDENT_RE.test(name)) {
             return { content: [{ type: 'text' as const, text: 'Invalid characters in source identifier. Owner, repo, and skill name must be alphanumeric.' }] };
           }
@@ -322,6 +338,11 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           }
           if (!content) {
             return { content: [{ type: 'text' as const, text: `Could not fetch SKILL.md from github.com/${owner}/${repo}/${skill}. Check the source identifier.` }] };
+          }
+
+          const MAX_SKILL_SIZE = 50 * 1024;
+          if (content.length > MAX_SKILL_SIZE) {
+            return { content: [{ type: 'text' as const, text: `Skill content too large (${content.length} bytes, max ${MAX_SKILL_SIZE}). Rejecting.` }] };
           }
 
           // Sanitize and store skill
@@ -355,6 +376,9 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         'Remove an installed skill',
         { name: z.string().describe('Skill name to remove') },
         async (args) => {
+          if (/[./\\]/.test(args.name)) {
+            return { content: [{ type: 'text' as const, text: 'Invalid skill name.' }] };
+          }
           const index = store.loadSkillIndex();
           if (!index[args.name]) {
             return { content: [{ type: 'text' as const, text: `Skill "${args.name}" not found.` }] };
@@ -377,7 +401,9 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           const sanitized = sanitizeMemory(args.content);
           if (!sanitized.trim()) return { content: [{ type: 'text' as const, text: 'Content was empty after sanitization.' }] };
           const entry = `\n## ${new Date().toISOString().slice(0, 10)}\n${sanitized}\n`;
-          appendFileSync(memPath, entry);
+          const existing = existsSync(memPath) ? readFileSync(memPath, 'utf-8') : '';
+          writeFileSync(memPath + '.tmp', existing + entry);
+          renameSync(memPath + '.tmp', memPath);
           return { content: [{ type: 'text' as const, text: 'Memory updated.' }] };
         },
       ),

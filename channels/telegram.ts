@@ -12,24 +12,31 @@ async function tg(token: string, method: string, body?: unknown, retries = 0, si
     if (res.status === 429 && retries < 3) {
       const wait = (json.parameters?.retry_after ?? 5) * 1000;
       await new Promise(r => setTimeout(r, wait));
-      return tg(token, method, body, retries + 1);
+      return tg(token, method, body, retries + 1, signal);
     }
     throw new Error(`Telegram ${method}: ${json.description}`);
   }
   return json.result;
 }
 
-async function tgForm(token: string, method: string, form: FormData): Promise<any> {
+async function tgForm(token: string, method: string, form: FormData, retries = 0): Promise<any> {
   const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: 'POST',
     body: form,
   });
-  const json = await res.json() as { ok: boolean; result?: any; description?: string };
-  if (!json.ok) throw new Error(`Telegram ${method}: ${json.description}`);
+  const json = await res.json() as { ok: boolean; result?: any; description?: string; parameters?: { retry_after?: number } };
+  if (!json.ok) {
+    if (res.status === 429 && retries < 3) {
+      const wait = (json.parameters?.retry_after ?? 5) * 1000;
+      await new Promise(r => setTimeout(r, wait));
+      return tgForm(token, method, form, retries + 1);
+    }
+    throw new Error(`Telegram ${method}: ${json.description}`);
+  }
   return json.result;
 }
 
-function chunkText(text: string, maxLen = 4096): string[] {
+function chunkText(text: string, maxLen = 3800): string[] {
   if (text.length <= maxLen) return [text];
   const chunks: string[] = [];
   let remaining = text;
@@ -58,7 +65,7 @@ function markdownToHtml(text: string): string {
 
   return result
     .replace(/&(?!amp;|lt;|gt;)/g, '&amp;')
-    .replace(/<(?!\/?(?:b|i|u|s|pre|code)\s*>)/g, '&lt;')
+    .replace(/<(?!\/?(?:b|i|u|s|pre|code)>)/g, '&lt;')
     .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
     .replace(/\*(.+?)\*/g, '<i>$1</i>')
     .replace(/__(.+?)__/g, '<u>$1</u>')
@@ -222,11 +229,12 @@ export function createTelegramChannel(
         text: `⚙️ <b>Settings</b>\nModel: <code>${settings.model}</code>\nThinking: <code>${settings.thinkingLevel}</code>`,
         parse_mode: 'HTML',
         reply_markup: buildSettingsKeyboard(settings),
-      }).catch(() => {});
+      }).catch(err => console.error('[telegram] Settings keyboard update failed:', err.message));
     },
 
     async answerCallback(callbackId: string, text?: string): Promise<void> {
-      await tg(token, 'answerCallbackQuery', { callback_query_id: callbackId, text }).catch(() => {});
+      await tg(token, 'answerCallbackQuery', { callback_query_id: callbackId, text })
+        .catch(err => console.error('[telegram] answerCallback failed:', err.message));
     },
 
     async setCommands(commands: BotCommand[]): Promise<void> {
