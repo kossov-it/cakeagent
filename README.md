@@ -45,7 +45,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 244 LOC raw `fetch()` | Framework + adapter |
 | **Integrations** | MCP + skills.sh | Custom plugin marketplace |
-| **Security** | 5-layer defense | Plaintext creds, no auth |
+| **Security** | 5-layer defense, every tool call audited | Varies — some have critical RCEs |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ---

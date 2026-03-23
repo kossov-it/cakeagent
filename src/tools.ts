@@ -17,7 +17,14 @@ function sanitizeMemory(content: string): string {
     /system\s*:\s*(prompt|override|command)/i,
     /\[System\s*Message\]/i,
   ];
-  return content.split('\n').filter(line => !INJECTION_RE.some(p => p.test(line))).join('\n');
+  const CREDENTIAL_RE = [
+    /(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S{20,}/i,
+    /\b(sk-ant-|sk-|ghp_|gho_|xoxb-|xoxp-|glpat-)[a-zA-Z0-9_-]{20,}/,
+  ];
+  return content.split('\n').filter(line =>
+    !INJECTION_RE.some(p => p.test(line)) &&
+    !CREDENTIAL_RE.some(p => p.test(line))
+  ).join('\n');
 }
 
 export function createTools(state: SharedState, dataDir: string, groupsDir: string) {
@@ -168,7 +175,7 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             args: toolArgs.args,
             ...(toolArgs.env && Object.keys(toolArgs.env).length > 0 ? { env: toolArgs.env } : {}),
           };
-          writeFileSync(MCP_JSON_PATH, JSON.stringify(mcpConfig, null, 2));
+          writeFileSync(MCP_JSON_PATH, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 });
           store.logAudit('tool_installed', toolArgs.name);
           return { content: [{ type: 'text' as const, text: `Installed "${toolArgs.name}". It will be available on the next agent invocation.` }] };
         },

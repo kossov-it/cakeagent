@@ -3,7 +3,6 @@ dist/
 data/
 credentials/
 .env
-*.tsbuildinfo
+.tsbuildinfo
 groups/*/conversations/
 .DS_Store
-.tsbuildinfo
