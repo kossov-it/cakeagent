@@ -20,7 +20,7 @@ if [ "${1:-}" = "update" ]; then
   AFTER=$(sudo -u "$SERVICE_USER" git rev-parse HEAD)
   NODE_DIR=$(dirname "$(command -v node)")
   if [ "$BEFORE" != "$AFTER" ]; then
-    if ! sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"; then
+    if ! sudo -u "$SERVICE_USER" bash -c "export PATH='$NODE_DIR':\$PATH && npm run build"; then
       echo "   ❌ Build failed — rolling back to previous version"
       sudo -u "$SERVICE_USER" git reset --hard "$BEFORE"
       exit 1
@@ -38,6 +38,10 @@ Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
     chmod 440 "$SUDOERS_FILE"
+    if ! visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+      echo "   ❌ Sudoers syntax error — removing broken file"
+      rm -f "$SUDOERS_FILE"
+    fi
     sed -e "s|/opt/cakeagent|${INSTALL_DIR}|g" \
         -e "s|User=cakeagent|User=${SERVICE_USER}|g" \
         -e "s|Group=cakeagent|Group=${SERVICE_USER}|g" \
@@ -143,10 +147,10 @@ NPM_BIN=$(command -v npm)
 NPX_BIN=$(command -v npx)
 NODE_DIR=$(dirname "$NODE_BIN")
 
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN install --no-fund --no-audit 2>&1" | tail -3
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN i edge-tts --no-fund --no-audit 2>/dev/null" || true
+sudo -u "$SERVICE_USER" bash -c "export PATH='$NODE_DIR':\$PATH && cd '$INSTALL_DIR' && '$NPM_BIN' install --no-fund --no-audit 2>&1" | tail -3
+sudo -u "$SERVICE_USER" bash -c "export PATH='$NODE_DIR':\$PATH && cd '$INSTALL_DIR' && '$NPM_BIN' i edge-tts --no-fund --no-audit 2>/dev/null" || true
 echo "   Building..."
-sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && cd $INSTALL_DIR && $NPM_BIN run build" || {
+sudo -u "$SERVICE_USER" bash -c "export PATH='$NODE_DIR':\$PATH && cd '$INSTALL_DIR' && '$NPM_BIN' run build" || {
   echo "   ❌ Build failed"
   exit 1
 }
@@ -162,6 +166,11 @@ Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
 sudo chmod 440 "$SUDOERS_FILE"
+if ! sudo visudo -cf "$SUDOERS_FILE" >/dev/null 2>&1; then
+  echo "   ❌ Sudoers syntax error — removing broken file"
+  sudo rm -f "$SUDOERS_FILE"
+  exit 1
+fi
 echo "   ✅ Agent can install system packages"
 
 sudo -u "$SERVICE_USER" mkdir -p "$INSTALL_DIR/data" "$INSTALL_DIR/groups/main" "$INSTALL_DIR/credentials"
@@ -240,7 +249,11 @@ fi
 if [ -z "$AUTH_KEY" ]; then
   echo "   ⚠️  No auth provided. Add it to $INSTALL_DIR/.env before starting."
 else
-  MASKED="${AUTH_KEY:0:10}$(printf '*%.0s' $(seq 1 $((${#AUTH_KEY} - 14))))${AUTH_KEY: -4}"
+  if [ ${#AUTH_KEY} -gt 14 ]; then
+    MASKED="${AUTH_KEY:0:10}$(printf '*%.0s' $(seq 1 $((${#AUTH_KEY} - 14))))${AUTH_KEY: -4}"
+  else
+    MASKED="${AUTH_KEY:0:4}****"
+  fi
   echo "   ✅ $MASKED"
 fi
 
