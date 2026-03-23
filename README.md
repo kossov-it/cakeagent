@@ -13,7 +13,7 @@
 
 A personal AI agent you can actually read. Under 2,200 lines of code, 9 files, 3 runtime dependencies.
 
-CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from MCP — an open standard with thousands of existing tool servers — not from custom plugin code. Ask "add Google Calendar" in chat and it installs itself.
+CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
 Runs as a single Node.js process under a dedicated system user. No containers, no web UI, no open ports.
 
@@ -36,16 +36,16 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orchestrator is under 2,000 lines. Integrations come from the MCP ecosystem — thousands of tool servers maintained by their own communities. No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orchestrator is under 2,200 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | <2,200 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | ~2,200 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
-| **Telegram** | 220 LOC raw `fetch()` | Framework + adapter |
-| **Extensions** | MCP open standard | Custom plugin marketplace |
-| **Security** | 4-layer defense (OS + sudoers + hooks + agent) | Plaintext creds, no auth |
+| **Telegram** | 244 LOC raw `fetch()` | Framework + adapter |
+| **Integrations** | MCP + skills.sh | Custom plugin marketplace |
+| **Security** | 5-layer defense | Plaintext creds, no auth |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ---
@@ -91,15 +91,25 @@ Removes the systemd service, the `cakeagent` user, the sudoers entry, and `/opt/
 ## Architecture
 
 ```
-┌──────────────┐     ┌───────────────┐     ┌──────────────┐
-│   Telegram   │────▶│  Orchestrator │────▶│ Claude Agent  │
-│  (raw fetch) │◀────│  (index.ts)   │◀────│ SDK query()   │
-└──────────────┘     └───────┬───────┘     └──────┬───────┘
+┌──────────────┐     ┌───────────────┐     ┌───────────────┐
+│   Telegram   │────▶│  Orchestrator │────▶│  Claude Agent  │
+│  (raw fetch) │◀────│  (index.ts)   │◀────│  SDK query()   │
+└──────────────┘     └───────┬───────┘     └──────┬────────┘
                              │                    │
-                      ┌──────┴──────┐      ┌──────┴──────┐
-                      │   SQLite    │      │  MCP Tools  │
-                      │ (store.ts)  │      │ (in-process)│
-                      └─────────────┘      └─────────────┘
+              ┌──────────────┼──────────────┐     │
+              │              │              │     │
+       ┌──────┴──────┐ ┌────┴────┐  ┌──────┴─────┴──────┐
+       │   SQLite    │ │  Voice  │  │   Security Hooks   │
+       │ (store.ts)  │ │ STT/TTS │  │   (PreToolUse,     │
+       └─────────────┘ └─────────┘  │    PreCompact)     │
+                                    └────────────────────┘
+              ┌──────────────┬──────────────┐
+              │              │              │
+       ┌──────┴──────┐ ┌────┴─────┐ ┌──────┴──────┐
+       │  MCP Tools  │ │ External │ │   Skills    │
+       │ (in-process)│ │   MCP    │ │ (skills.sh) │
+       │  18 tools   │ │ .mcp.json│ │ data/skills │
+       └─────────────┘ └──────────┘ └─────────────┘
 ```
 
 Messages go through three layers. Most never reach the Claude API:
@@ -111,15 +121,15 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          466  Orchestrator, routing, scheduler, voice toggle
-src/tools.ts          310  16 MCP tools (in-process)
-channels/telegram.ts  230  Telegram adapter (raw fetch)
-src/store.ts          218  SQLite: messages, schedules, groups, audit
-src/hooks.ts          183  Security hooks (Bash, Read, Write guards)
-src/voice.ts          160  Whisper STT + Edge TTS
-src/types.ts          141  Type definitions
-src/agent.ts           91  Claude Agent SDK wrapper + streaming
-src/config.ts          51  .env parser
+src/index.ts          561  Orchestrator, routing, scheduler, voice toggle
+src/tools.ts          426  18 MCP tools (in-process)
+src/store.ts          295  SQLite: messages, schedules, groups, audit, skills
+channels/telegram.ts  244  Telegram adapter (raw fetch, retry, HTML)
+src/hooks.ts          244  Security hooks (Bash, Read, Grep, Glob, Write/Edit, PreCompact)
+src/types.ts          144  Type definitions + validation constants
+src/voice.ts          129  Whisper STT + Edge TTS
+src/agent.ts          104  Claude Agent SDK wrapper + streaming
+src/config.ts          48  .env parser
 ```
 
 ### First run
@@ -146,36 +156,52 @@ Memory survives restarts and `/reset`. The `/reset` command only clears the Clau
 
 ---
 
-## MCP integrations
+## Integrations
+
+CakeAgent extends through two open ecosystems:
+
+### MCP servers — runtime tools
 
 ```
 You:       "Find an MCP server for Google Calendar"
-CakeAgent:  Found 3 servers:
-            1. com.google/calendar-mcp ...
-            Install?
+CakeAgent:  Found 3 servers. Install?
 You:       "Yes"
 CakeAgent:  Installed. Available now.
 ```
 
-The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io), shows what it found, and installs after you confirm. Servers go into `.mcp.json` and load automatically on the next message.
+The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io), shows what it found, and installs after you confirm. Servers go into `.mcp.json` and load automatically on the next message. Each installed server also gets its own `/command` in the Telegram menu.
+
+### Skills — knowledge packs from [skills.sh](https://skills.sh)
+
+```
+You:       "Connect to Outlook"
+CakeAgent:  Found skill: dandcg/claude-skills/outlook. Install?
+You:       "Yes"
+CakeAgent:  Installed. Setting up CLI tools...
+```
+
+Skills are different from MCP: they inject documentation and CLI knowledge directly into the agent's prompt. The agent then uses standard tools (Bash, pip, npm) to interact with the service. Browse available skills at [skills.sh](https://skills.sh) or ask the agent to search.
+
+Manage installed skills with `/skills` in Telegram.
 
 ### Built-in tools
 
 | Tool | What it does |
 |------|-------------|
 | `send_message` | Send progress updates mid-conversation |
-| `schedule_task` | Recurring or one-time tasks |
+| `schedule_task` / `list_schedules` / `update_schedule` / `delete_schedule` | Task scheduling |
 | `search_mcp_registry` | Search the official MCP registry |
-| `install_tool` / `remove_tool` | Add or remove MCP servers |
-| `update_settings` | Change model, thinking level, voice |
-| `register_group` | Add a Telegram group with a trigger word |
+| `install_tool` / `remove_tool` / `list_tools` | Manage MCP servers |
+| `install_skill` / `remove_skill` / `list_skills` | Manage skills.sh integrations |
+| `get_settings` / `update_settings` | Read or change settings |
+| `register_group` / `list_groups` | Manage Telegram group chats |
 | `update_memory` / `rewrite_memory` | Persistent memory across sessions |
 
 ---
 
 ## Voice
 
-Toggle in `/settings` — CakeAgent installs everything automatically on first enable.
+Two separate toggles in `/settings` — **Voice In** (speech-to-text) and **Voice Out** (text-to-speech). CakeAgent installs all dependencies automatically on first enable.
 
 | | Provider | Runs where | Install |
 |---|---|---|---|
@@ -188,35 +214,29 @@ STT is fully local — your audio never leaves the server. TTS uses Microsoft's 
 
 ## Security
 
-CakeAgent gives Claude real system access — it installs packages, manages services, writes files, runs bash, and adds MCP servers. Four independent layers ensure this works without making the server a target.
+CakeAgent gives Claude real system access — it installs packages, manages services, writes files, runs bash, and adds integrations. Five independent layers ensure this works without making the server a target.
 
-```
-Layer 1 — OS         systemd sandbox + dedicated user (nologin shell)
-Layer 2 — Sudoers    Whitelist: apt-get, apt, dpkg, systemctl, setup.sh
-Layer 3 — Hooks      PreToolUse validators on every tool call
-Layer 4 — Agent      acceptEdits mode, maxTurns: 25, sender allowlist
-```
+### Defense layers
 
-### What the agent can do
+| Layer | What it does |
+|-------|-------------|
+| **OS sandbox** | Dedicated `cakeagent` user (nologin shell), systemd `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true` |
+| **Sudoers** | Passwordless sudo limited to `apt-get`, `apt`, `dpkg`, `systemctl`, and `setup.sh` only |
+| **PreToolUse hooks** | Every Bash, Read, Grep, Glob, Write, and Edit call validated before execution |
+| **Agent controls** | `acceptEdits` permission mode, `maxTurns: 25`, sender allowlist, rate limiting |
+| **Runtime checks** | Prompt injection detection, memory/skill content sanitization, `.env` permission check on startup |
 
-| Action | Mechanism |
-|--------|-----------|
-| Install packages | `sudo apt-get` / `pip3` / `npm` |
-| Manage services | `sudo systemctl` (sshd, cakeagent, networking, firewall blocked) |
-| Read/write data files | Within `/opt/cakeagent/data`, `groups/` |
-| Run bash commands | Validated by PreToolUse hook before execution |
-| Add MCP integrations | Writes to `.mcp.json`, loads on next message |
-| Download files | `curl` without sudo — agent-owned paths only |
+### What's allowed
+
+Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critical services blocked), read/write data files, run validated bash commands, add MCP servers and skills, download files without sudo.
 
 ### What's blocked
 
-| Layer | Blocked |
-|-------|---------|
-| **Hooks — Bash** | Shell injection (`$()`, backticks), inline execution (`bash -c`, `node -e`, `ruby -e`, `php -r`), reverse shells, download-and-execute, destructive chained rm, user/password management, critical service mutations, firewall changes |
-| **Hooks — Files** | Read `.env`/`.ssh`/credentials/`.pem` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`/etc/` (Write/Edit guard) |
-| **Sudoers** | No `curl` as root, no arbitrary `bash -c`, no commands outside whitelist |
-| **OS sandbox** | `ProtectHome`, `ProtectSystem=full`, `PrivateTmp`, kernel module protection |
-| **Agent** | Sender allowlist, rate limiting, turn limit, every tool call logged to SQLite audit table |
+**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking, firewall), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
+
+**Files**: read `.env`/`.ssh`/credentials/`.pem`/`/etc/shadow` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`/etc/`/`package.json`/`tsconfig.json`/skill index (Write/Edit guard).
+
+**Audit**: every tool call logged to SQLite `audit_log` table. Injection attempts logged with sender and content.
 
 ---
 
@@ -224,9 +244,10 @@ Layer 4 — Agent      acceptEdits mode, maxTurns: 25, sender allowlist
 
 | Command | What it does |
 |---------|-------------|
-| `/status` | Model, uptime, active tasks |
-| `/settings` | Inline keyboard — model, thinking level, voice |
-| `/reset` | Clear conversation session |
+| `/status` | Model, uptime, skills, active tasks, voice status |
+| `/settings` | Inline keyboard — model (Haiku/Sonnet/Opus), thinking level, voice in/out |
+| `/skills` | List installed skills with source and install date |
+| `/reset` | Clear conversation session (keeps memory and settings) |
 | `/update` | Pull latest code, rebuild, restart |
 | `/restart` | Restart without updating |
 | `/help` | List commands |
