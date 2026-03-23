@@ -39,4 +39,5 @@ jobs:
           git config user.email "github-actions@github.com"
           git add .badges/
           git diff --staged --quiet || git commit -m "Update badge data [skip ci]"
+          git pull --rebase origin main
           git push
