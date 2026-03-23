@@ -9,6 +9,7 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync } from 'no
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage } from './types.js';
+import { VALID_MODELS } from './types.js';
 
 const config = loadConfig();
 store.initDb(config.dataDir);
@@ -106,13 +107,12 @@ checkVoiceDeps().then(({ missing }) => {
   if (missing.length) console.warn('[voice] Missing:', missing.join(', '));
 });
 
-const VALID_MODEL_RE = /^claude-[a-z]+-[a-z0-9-]+$/;
 const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
 
 async function handleSettingsCallback(data: string, settings: CakeSettings, chatId: string): Promise<CakeSettings> {
   const [key, val] = data.split(':');
 
-  if (key === 'model' && VALID_MODEL_RE.test(val)) {
+  if (key === 'model' && VALID_MODELS.has(val)) {
     settings.model = val;
   } else if (key === 'thinking' && VALID_THINKING.has(val)) {
     settings.thinkingLevel = val;

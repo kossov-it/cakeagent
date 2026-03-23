@@ -416,7 +416,8 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           const memPath = join(dataDir, 'memory.md');
           const sanitized = sanitizeMemory(args.content);
           if (!sanitized.trim()) return { content: [{ type: 'text' as const, text: 'Content was empty after sanitization.' }] };
-          writeFileSync(memPath, sanitized);
+          writeFileSync(memPath + '.tmp', sanitized);
+          renameSync(memPath + '.tmp', memPath);
           store.logAudit('memory_rewritten', `${sanitized.length} chars`);
           return { content: [{ type: 'text' as const, text: `Memory rewritten (${sanitized.length} chars).` }] };
         },

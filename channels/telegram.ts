@@ -148,7 +148,11 @@ export function createTelegramChannel(
                 type: 'message',
                 message: {
                   id: `tg_${m.message_id}_${chatId}`,
-                  text: m.text ?? m.caption ?? undefined,
+                  text: m.text ?? m.caption
+                    ?? (m.photo ? '[Photo — no caption]' : null)
+                    ?? (m.document ? `[Document: ${m.document.file_name ?? 'file'}]` : null)
+                    ?? (m.sticker ? `[Sticker${m.sticker.emoji ? ': ' + m.sticker.emoji : ''}]` : null)
+                    ?? undefined,
                   voiceFileId: m.voice?.file_id ?? m.audio?.file_id ?? undefined,
                   senderId: String(m.from?.id ?? ''),
                   senderName: m.from?.first_name ?? 'Unknown',

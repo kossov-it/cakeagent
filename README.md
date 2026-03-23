@@ -65,7 +65,7 @@ The setup script:
 1. Checks Node.js
 2. Creates a `cakeagent` system user (nologin shell, home at `/opt/cakeagent`)
 3. Installs dependencies and builds
-4. Configures passwordless `sudo apt` (only `apt-get` and `apt`) so the agent can install packages
+4. Configures passwordless sudo (`apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh`) — hooks restrict usage
 5. Asks for your **Telegram bot token** — [get one from @BotFather](https://t.me/BotFather)
 6. Asks for your **Telegram user ID** — [get it from @userinfobot](https://t.me/userinfobot)
 7. Asks for **Claude authentication** (see below)
