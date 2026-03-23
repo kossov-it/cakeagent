@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/banner.jpg" alt="CakeAgent" width="600">
+</p>
+
 # 🍰 CakeAgent
 
 [![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
