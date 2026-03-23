@@ -11,7 +11,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read. Under 2,200 lines of code, 9 files, 3 runtime dependencies.
+A personal AI agent you can actually read. Just 2,200 lines of code, 9 files, 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -36,7 +36,7 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orchestrator is under 2,200 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire orchestrator is just 2,200 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
@@ -96,20 +96,21 @@ Removes the systemd service, the `cakeagent` user, the sudoers entry, and `/opt/
 │  (raw fetch) │◀────│  (index.ts)   │◀────│  SDK query()   │
 └──────────────┘     └───────┬───────┘     └──────┬────────┘
                              │                    │
-              ┌──────────────┼──────────────┐     │
-              │              │              │     │
-       ┌──────┴──────┐ ┌────┴────┐  ┌──────┴─────┴──────┐
-       │   SQLite    │ │  Voice  │  │   Security Hooks   │
-       │ (store.ts)  │ │ STT/TTS │  │   (PreToolUse,     │
-       └─────────────┘ └─────────┘  │    PreCompact)     │
-                                    └────────────────────┘
-              ┌──────────────┬──────────────┐
-              │              │              │
-       ┌──────┴──────┐ ┌────┴─────┐ ┌──────┴──────┐
-       │  MCP Tools  │ │ External │ │   Skills    │
-       │ (in-process)│ │   MCP    │ │ (skills.sh) │
-       │  18 tools   │ │ .mcp.json│ │ data/skills │
-       └─────────────┘ └──────────┘ └─────────────┘
+       ┌─────────────────────┼────────────────────┤
+       │                     │                    │
+┌──────┴──────┐       ┌──────┴──────┐      ┌─────┴──────────┐
+│   SQLite    │       │    Voice    │      │ Security Hooks  │
+│ (store.ts)  │       │  STT / TTS │      │  (6 PreToolUse  │
+└─────────────┘       └─────────────┘      │   + PreCompact) │
+                                           └────────────────┘
+       ┌───────────────────────────────────────────┐
+       │              Tool Layer                   │
+       │                                           │
+       │  ┌─────────────┐ ┌───────────┐ ┌───────┐ │
+       │  │  18 Built-in│ │ External  │ │Skills │ │
+       │  │  MCP Tools  │ │ MCP (.mcp)│ │(.sh)  │ │
+       │  └─────────────┘ └───────────┘ └───────┘ │
+       └───────────────────────────────────────────┘
 ```
 
 Messages go through three layers. Most never reach the Claude API:
@@ -158,31 +159,23 @@ Memory survives restarts and `/reset`. The `/reset` command only clears the Clau
 
 ## Integrations
 
-CakeAgent extends through two open ecosystems:
-
-### MCP servers — runtime tools
+CakeAgent extends through two open ecosystems, searched **in parallel** when you ask to connect a service:
 
 ```
-You:       "Find an MCP server for Google Calendar"
-CakeAgent:  Found 3 servers. Install?
+You:       "Connect to Google Calendar"
+CakeAgent:  Found MCP server and a skill. MCP is preferred (structured tools).
+            Install the MCP server?
 You:       "Yes"
 CakeAgent:  Installed. Available now.
 ```
 
-The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io), shows what it found, and installs after you confirm. Servers go into `.mcp.json` and load automatically on the next message. Each installed server also gets its own `/command` in the Telegram menu.
+### MCP servers — runtime tools
+
+The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io) for tool servers. Installed servers go into `.mcp.json`, load automatically on the next message, and get their own `/command` in the Telegram menu.
 
 ### Skills — knowledge packs from [skills.sh](https://skills.sh)
 
-```
-You:       "Connect to Outlook"
-CakeAgent:  Found skill: dandcg/claude-skills/outlook. Install?
-You:       "Yes"
-CakeAgent:  Installed. Setting up CLI tools...
-```
-
-Skills are different from MCP: they inject documentation and CLI knowledge directly into the agent's prompt. The agent then uses standard tools (Bash, pip, npm) to interact with the service. Browse available skills at [skills.sh](https://skills.sh) or ask the agent to search.
-
-Manage installed skills with `/skills` in Telegram.
+Skills inject documentation and CLI knowledge directly into the agent's prompt. The agent then uses standard tools (Bash, pip, npm) to interact with the service. Used when no MCP server exists for a service. Browse available skills at [skills.sh](https://skills.sh) or manage them with `/skills` in Telegram.
 
 ### Built-in tools
 
