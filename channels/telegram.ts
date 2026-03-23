@@ -191,6 +191,21 @@ export function createTelegramChannel(
       }
     },
 
+    async sendFile(chatId: string, filePath: string, caption?: string): Promise<void> {
+      const { readFileSync } = await import('node:fs');
+      const { basename, extname } = await import('node:path');
+      const name = basename(filePath);
+      const ext = extname(filePath).toLowerCase();
+      const isImage = ['.jpg', '.jpeg', '.png', '.gif', '.webp'].includes(ext);
+      const data = readFileSync(filePath);
+      const form = new FormData();
+      form.set('chat_id', chatId);
+      const field = isImage ? 'photo' : 'document';
+      form.set(field, new Blob([new Uint8Array(data)]), name);
+      if (caption) form.set('caption', caption);
+      await tgForm(token, isImage ? 'sendPhoto' : 'sendDocument', form);
+    },
+
     async sendVoice(chatId: string, audio: Buffer): Promise<void> {
       const form = new FormData();
       form.set('chat_id', chatId);

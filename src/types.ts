@@ -25,6 +25,7 @@ export interface Channel {
   name: string;
   poll(signal: AbortSignal): AsyncGenerator<TelegramUpdate>;
   send(chatId: string, text: string): Promise<void>;
+  sendFile(chatId: string, filePath: string, caption?: string): Promise<void>;
   sendVoice(chatId: string, audio: Buffer): Promise<void>;
   startTyping(chatId: string): void;
   stopTyping(): void;
@@ -131,8 +132,15 @@ export interface ScheduleOp {
   task: Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'>;
 }
 
+export interface PendingFile {
+  chatId: string;
+  filePath: string;
+  caption?: string;
+}
+
 export interface SharedState {
   pendingMessages: OutgoingMessage[];
+  pendingFiles: PendingFile[];
   pendingSchedules: ScheduleOp[];
   currentGroupFolder?: string;
 }

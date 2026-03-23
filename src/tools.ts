@@ -44,6 +44,22 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
       ),
 
       tool(
+        'send_file',
+        'Send a file back to the user (photos displayed inline, documents as attachments). Use after editing or generating a file.',
+        {
+          filePath: z.string().describe('Absolute path to the file to send'),
+          caption: z.string().optional().describe('Optional caption for the file'),
+        },
+        async (args) => {
+          if (!existsSync(args.filePath)) {
+            return { content: [{ type: 'text' as const, text: `File not found: ${args.filePath}` }] };
+          }
+          state.pendingFiles.push({ chatId: '', filePath: args.filePath, caption: args.caption });
+          return { content: [{ type: 'text' as const, text: `File queued: ${args.filePath}` }] };
+        },
+      ),
+
+      tool(
         'schedule_task',
         'Create a scheduled or recurring task. Use interval for recurring, once for one-time reminders.',
         {

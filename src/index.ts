@@ -28,7 +28,7 @@ if (!existsSync(join(mainDir, 'CLAUDE.md'))) {
 const memPath = join(config.dataDir, 'memory.md');
 if (!existsSync(memPath)) writeFileSync(memPath, '');
 
-const state: SharedState = { pendingMessages: [], pendingSchedules: [] };
+const state: SharedState = { pendingMessages: [], pendingFiles: [], pendingSchedules: [] };
 const picoServer = createTools(state, config.dataDir, groupsDir);
 const hooks = createHooks(state, groupsDir);
 
@@ -331,6 +331,9 @@ const schedulerInterval = setInterval(async () => {
       for (const msg of state.pendingMessages.splice(0)) {
         await telegram.send(msg.chatId || task.chatId, msg.text);
       }
+      for (const file of state.pendingFiles.splice(0)) {
+        await telegram.sendFile(file.chatId || task.chatId, file.filePath, file.caption);
+      }
 
       if (result) await telegram.send(task.chatId, result);
 
@@ -524,6 +527,9 @@ async function handleUpdate(update: TelegramUpdate, lastProcessed: Map<string, n
 
     for (const pending of state.pendingMessages.splice(0)) {
       await telegram.send(pending.chatId || msg.chatId, pending.text);
+    }
+    for (const file of state.pendingFiles.splice(0)) {
+      await telegram.sendFile(file.chatId || msg.chatId, file.filePath, file.caption);
     }
 
     for (const op of state.pendingSchedules.splice(0)) {
