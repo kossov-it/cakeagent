@@ -49,8 +49,16 @@ const BASH_DENY = [
   /\bsed\b.*\.env/,
 
   // Critical system files — block all access via Bash (reads, writes, redirects)
+  // Agent can still configure nginx, mysql, letsencrypt, systemd services, sysctl.d, sources.list.d
   /\/etc\/(shadow|passwd|sudoers)/,
   /\/etc\/ssh\//,
+  /\/etc\/hosts\b/,
+  /\/etc\/resolv\.conf\b/,
+  /\/etc\/hostname\b/,
+  /\/etc\/fstab\b/,
+  /\/etc\/sysctl\.conf\b/,
+  /\/etc\/apt\/sources\.list(?!\.d)/,
+  /\/etc\/systemd\/system\/cakeagent/,
 
   // System administration — allow service management, protect critical services
   /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking)\b/,
@@ -63,7 +71,6 @@ const BASH_DENY = [
   /\buseradd\b/,
   /\buserdel\b/,
   /\bvisudo\b/,
-  /\bcrontab\b/,
 
   // Filesystem security
   /\bchmod\b.*\.(ssh|env|pem)/,
