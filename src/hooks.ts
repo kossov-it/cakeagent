@@ -1,4 +1,4 @@
-import type { PreToolUseHookInput, PreCompactHookInput } from '@anthropic-ai/claude-agent-sdk';
+import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
 import type { SharedState } from './types.js';
 import { logAudit } from './store.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -103,16 +103,17 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
     PreToolUse: [
       {
         matcher: '^Bash$',
-        hooks: [async (input: PreToolUseHookInput) => {
-          const command: string = (input.tool_input as { command?: string })?.command ?? '';
+        hooks: [async (input: HookInput) => {
+          const ti = 'tool_input' in input ? input.tool_input as { command?: string } : null;
+          const command: string = ti?.command ?? '';
           const normalized = normalizeCommand(command);
           const denied = BASH_DENY.find(p => p.test(normalized));
           if (denied) {
             logAudit('bash_denied', command.slice(0, 500));
             return {
               hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'deny' as const,
                 permissionDecisionReason: 'Command matches a blocked pattern',
               },
             };
@@ -120,100 +121,100 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
           logAudit('bash_allowed', command.slice(0, 200));
           return {
             hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: 'allow',
+              hookEventName: 'PreToolUse' as const,
+              permissionDecision: 'allow' as const,
             },
           };
         }],
       },
       {
         matcher: '^Read$',
-        hooks: [async (input: PreToolUseHookInput) => {
-          const filePath: string = (input.tool_input as { file_path?: string })?.file_path ?? '';
+        hooks: [async (input: HookInput) => {
+          const filePath: string = ('tool_input' in input ? (input.tool_input as { file_path?: string })?.file_path : '') ?? '';
           const blocked = SENSITIVE_PATHS.find(p => p.test(filePath));
           if (blocked) {
             logAudit('read_denied', filePath);
             return {
               hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'deny' as const,
                 permissionDecisionReason: 'Sensitive file — access blocked',
               },
             };
           }
           return {
             hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: 'allow',
+              hookEventName: 'PreToolUse' as const,
+              permissionDecision: 'allow' as const,
             },
           };
         }],
       },
       {
         matcher: '^Grep$',
-        hooks: [async (input: PreToolUseHookInput) => {
-          const searchPath: string = (input.tool_input as { path?: string })?.path ?? '';
+        hooks: [async (input: HookInput) => {
+          const searchPath: string = ('tool_input' in input ? (input.tool_input as { path?: string })?.path : '') ?? '';
           const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
           if (blocked) {
             logAudit('grep_denied', searchPath);
             return {
               hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'deny' as const,
                 permissionDecisionReason: 'Sensitive path — search blocked',
               },
             };
           }
           return {
             hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: 'allow',
+              hookEventName: 'PreToolUse' as const,
+              permissionDecision: 'allow' as const,
             },
           };
         }],
       },
       {
         matcher: '^Glob$',
-        hooks: [async (input: PreToolUseHookInput) => {
-          const searchPath: string = (input.tool_input as { path?: string })?.path ?? '';
+        hooks: [async (input: HookInput) => {
+          const searchPath: string = ('tool_input' in input ? (input.tool_input as { path?: string })?.path : '') ?? '';
           const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
           if (blocked) {
             logAudit('glob_denied', searchPath);
             return {
               hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'deny' as const,
                 permissionDecisionReason: 'Sensitive directory — enumeration blocked',
               },
             };
           }
           return {
             hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: 'allow',
+              hookEventName: 'PreToolUse' as const,
+              permissionDecision: 'allow' as const,
             },
           };
         }],
       },
       {
         matcher: '^(Write|Edit)$',
-        hooks: [async (input: PreToolUseHookInput) => {
-          const filePath: string = (input.tool_input as { file_path?: string })?.file_path ?? '';
+        hooks: [async (input: HookInput) => {
+          const filePath: string = ('tool_input' in input ? (input.tool_input as { file_path?: string })?.file_path : '') ?? '';
           const blocked = PROTECTED_PATHS.find(p => p.test(filePath));
           if (blocked) {
             logAudit('file_denied', filePath);
             return {
               hookSpecificOutput: {
-                hookEventName: 'PreToolUse',
-                permissionDecision: 'deny',
+                hookEventName: 'PreToolUse' as const,
+                permissionDecision: 'deny' as const,
                 permissionDecisionReason: 'Protected file — use update_memory tool instead',
               },
             };
           }
           return {
             hookSpecificOutput: {
-              hookEventName: 'PreToolUse',
-              permissionDecision: 'allow',
+              hookEventName: 'PreToolUse' as const,
+              permissionDecision: 'allow' as const,
             },
           };
         }],
@@ -223,7 +224,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
     PreCompact: [
       {
         matcher: '.*',
-        hooks: [async (input: PreCompactHookInput) => {
+        hooks: [async (input: HookInput) => {
           try {
             const sessionId = input.session_id ?? 'unknown';
             const groupFolder = state.currentGroupFolder ?? 'main';

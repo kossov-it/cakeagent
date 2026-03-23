@@ -6,3 +6,4 @@ credentials/
 *.tsbuildinfo
 groups/*/conversations/
 .DS_Store
+.tsbuildinfo

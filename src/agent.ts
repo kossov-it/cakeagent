@@ -66,31 +66,33 @@ export async function runAgent(
         abortController: controller,
       },
     })) {
-      if (message.type === 'system' && message.subtype === 'init') {
-        sessionId = message.session_id ?? sessionId;
+      // Explicit casts avoid expensive narrowing on SDKMessage's 20+ type union.
+      // Fields are verified against sdk.d.ts: SDKSystemMessage, SDKAssistantMessage, SDKResultSuccess/Error.
+      const msg = message as { type: string; subtype?: string; session_id?: string;
+        message?: { content?: Array<{ type: string; text?: string }> };
+        result?: string; errors?: string[] };
+
+      if (msg.type === 'system' && msg.subtype === 'init') {
+        sessionId = msg.session_id ?? sessionId;
       }
 
-      if (message.type === 'assistant' && onText) {
-        const content = message.message?.content;
-        if (Array.isArray(content)) {
-          for (const block of content) {
-            if (block.type === 'text' && block.text) {
-              const text = block.text.trim();
-              if (text && text !== lastStreamedText) {
-                await onText(text);
-                lastStreamedText = text;
-              }
+      if (msg.type === 'assistant' && onText && Array.isArray(msg.message?.content)) {
+        for (const block of msg.message!.content!) {
+          if (block.type === 'text' && block.text) {
+            const text = block.text.trim();
+            if (text && text !== lastStreamedText) {
+              await onText(text);
+              lastStreamedText = text;
             }
           }
         }
       }
 
-      if (message.type === 'result') {
-        if (message.subtype === 'success') {
-          result = message.result ?? '';
+      if (msg.type === 'result') {
+        if (msg.subtype === 'success') {
+          result = msg.result ?? '';
         } else {
-          result = ('errors' in message && Array.isArray(message.errors) ? message.errors[0] : null)
-            ?? `Agent stopped: ${message.subtype}`;
+          result = msg.errors?.[0] ?? `Agent stopped: ${msg.subtype}`;
         }
       }
     }

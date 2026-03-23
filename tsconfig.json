@@ -10,7 +10,9 @@
     "skipLibCheck": true,
     "declaration": true,
     "sourceMap": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".tsbuildinfo"
   },
   "include": ["src/**/*", "channels/**/*"]
 }
