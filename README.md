@@ -225,9 +225,13 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 
 ### What's blocked
 
-**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking, firewall), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
+**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
 
-**Files**: read `.env`/`.ssh`/credentials/`.pem`/`/etc/shadow` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`/etc/`/`package.json`/`tsconfig.json`/skill index (Write/Edit guard).
+**System files**: `/etc/shadow`, `/etc/passwd`, `/etc/sudoers*`, `/etc/ssh/`, `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`, `/etc/fstab`, `/etc/sysctl.conf`, `/etc/apt/sources.list`, cakeagent's own service file. Agent can still configure nginx, mysql, cron, letsencrypt, systemd services, `sysctl.d/`, `sources.list.d/`, and any app it installs.
+
+**Firewall**: `nft flush`, `nft delete table`, `iptables -F/-X/-Z`, `iptables -P ACCEPT` blocked. `systemctl stop/disable` on firewall services blocked. SSH port 22 protected. Adding/deleting rules and reloading allowed.
+
+**Files**: read `.env`/`.ssh`/credentials/`.pem`/`/etc/shadow` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`package.json`/`tsconfig.json`/skill index (Write/Edit guard).
 
 **Audit**: every tool call logged to SQLite `audit_log` table. Injection attempts logged with sender and content.
 
