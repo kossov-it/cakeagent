@@ -11,7 +11,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read — with just around 2,200 lines of code, 9 files, and 3 runtime dependencies.
+A personal AI agent you can actually read — with just around 2,300 lines of code, 9 files, and 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -36,11 +36,11 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire orchestrator is around 2,200 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire orchestrator is around 2,300 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | ~2,200 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | ~2,300 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 244 LOC raw `fetch()` | Framework + adapter |
