@@ -48,6 +48,10 @@ const BASH_DENY = [
   /\b(cat|less|more|head|tail)\b.*credentials\//,
   /\bsed\b.*\.env/,
 
+  // Critical system files — block all access via Bash (reads, writes, redirects)
+  /\/etc\/(shadow|passwd|sudoers)/,
+  /\/etc\/ssh\//,
+
   // System administration — allow service management, protect critical services
   /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking|nftables|firewalld|ufw)\b/,
   /\bsystemctl\b.*\bmask\b/,             // persistent service disable
