@@ -53,7 +53,8 @@ const BASH_DENY = [
   /\/etc\/ssh\//,
 
   // System administration — allow service management, protect critical services
-  /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking|nftables|firewalld|ufw)\b/,
+  /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking)\b/,
+  /\bsystemctl\b.*\b(stop|disable)\b.*\b(nftables|firewalld|ufw)\b/,
   /\bsystemctl\b.*\bmask\b/,             // persistent service disable
   /\breboot\b/,
   /\bshutdown\b/,
@@ -67,8 +68,12 @@ const BASH_DENY = [
   // Filesystem security
   /\bchmod\b.*\.(ssh|env|pem)/,
   /\bchown\b.*\.(ssh|env|pem)/,
-  /\biptables\b/,
-  /\bnft\b/,
+  // Firewall — allow rule management, block destructive operations
+  /\bnft\s+flush\b/,                            // block wiping all rules
+  /\bnft\s+delete\s+table\b/,                   // block destroying entire tables
+  /\biptables\s+-[FXZ]\b/,                      // block flush/delete/zero chains
+  /\biptables\s+-P\b.*\bACCEPT\b/,             // block default-accept policy
+  /\b(nft|iptables)\b.*\bdport\s+22\b/,        // protect SSH port
 
   // Source code protection — block bash writes to project files
   />\s*\S*\/src\//,                    // redirect to src/
