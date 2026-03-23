@@ -20,7 +20,11 @@ if [ "${1:-}" = "update" ]; then
   AFTER=$(sudo -u "$SERVICE_USER" git rev-parse HEAD)
   NODE_DIR=$(dirname "$(command -v node)")
   if [ "$BEFORE" != "$AFTER" ]; then
-    sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"
+    if ! sudo -u "$SERVICE_USER" bash -c "export PATH=$NODE_DIR:\$PATH && npm run build"; then
+      echo "   ❌ Build failed — rolling back to previous version"
+      sudo -u "$SERVICE_USER" git reset --hard "$BEFORE"
+      exit 1
+    fi
   else
     echo "   No changes."
   fi
@@ -241,14 +245,13 @@ else
 fi
 
 ENV_FILE="$INSTALL_DIR/.env"
-sudo bash -c "cat > $ENV_FILE" <<EOF
-TELEGRAM_BOT_TOKEN=${BOT_TOKEN}
-TELEGRAM_CHAT_ID=${CHAT_ID}
-EOF
-
-if [ -n "$AUTH_KEY" ]; then
-  sudo bash -c "echo '${AUTH_VAR}=${AUTH_KEY}' >> $ENV_FILE"
-fi
+{
+  echo "TELEGRAM_BOT_TOKEN=${BOT_TOKEN}"
+  echo "TELEGRAM_CHAT_ID=${CHAT_ID}"
+  if [ -n "$AUTH_KEY" ]; then
+    echo "${AUTH_VAR}=${AUTH_KEY}"
+  fi
+} | sudo tee "$ENV_FILE" > /dev/null
 
 sudo chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
 sudo chmod 600 "$ENV_FILE"
