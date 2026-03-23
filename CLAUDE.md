@@ -14,15 +14,16 @@ Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to
 ## Directory Layout
 ```
 src/index.ts        — Orchestrator: poll loop, routing, scheduler, shutdown
-src/agent.ts        — Agent SDK wrapper: query(), session resume
-src/tools.ts        — In-process MCP server (createSdkMcpServer)
-src/hooks.ts        — Security hooks: bash validator, memory guard, interceptor
-src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit)
-src/voice.ts        — STT + TTS providers
+src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
+src/tools.ts        — In-process MCP server: 18 tools (createSdkMcpServer)
+src/hooks.ts        — Security hooks: 6 PreToolUse matchers + PreCompact archiver
+src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
+src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/config.ts       — .env loading
-src/types.ts        — Shared types
-channels/telegram.ts — Raw fetch Telegram adapter
+src/types.ts        — Shared types + validation constants
+channels/telegram.ts — Raw fetch Telegram adapter (retry, HTML, chunking)
 groups/main/CLAUDE.md — Agent identity + rules (not this file)
+data/skills/        — Installed skill content (.md) + index.json
 ```
 
 ## Build / Run / Test
@@ -48,12 +49,17 @@ npx tsc --noEmit     # Type-check only
 ## Security
 - Dedicated `cakeagent` system user with nologin shell
 - systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
-- Passwordless sudo limited to `/usr/bin/apt-get` and `/usr/bin/apt` only
-- Bash commands validated by PreToolUse hook (deny injection patterns)
-- Write/Edit to CLAUDE.md, .env, credentials/ blocked by PreToolUse hook
-- Rate limiting persisted in SQLite
-- All tool calls logged to audit_log table
+- Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh` (agent told it only has apt)
+- 6 PreToolUse hooks: Bash (deny patterns + command normalization), Read, Grep, Glob, Write/Edit
+- PreCompact hook archives conversations on context compaction
+- Bash commands normalized (quotes stripped) before deny-pattern matching
+- Settings validated: model, thinkingLevel, voiceTtsVoice checked against allowed values
+- Skill content capped at 50 KB, memory.md capped at 50 KB
+- Atomic writes for settings.json and skills/index.json (write-tmp-then-rename)
+- Prompt injection detection: flagged messages get security warning prepended
+- Memory/skill content sanitized via `sanitizeMemory()` before storage
+- Rate limiting persisted in SQLite; all tool calls logged to audit_log
 - Chat ID + sender allowlist — only configured Telegram chats and senders processed
 - Concurrency guard (`agentBusy`) — one agent invocation at a time
-- Memory injection — memory.md prepended to every prompt, not relying on agent file reads
-- Streaming responses — assistant text sent immediately, final result deduped
+- `.env` permission check on startup (warns if not 600)
+- `unhandledRejection` handler with audit logging
