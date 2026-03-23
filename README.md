@@ -40,7 +40,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The orc
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | <2,000 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | <2,200 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 220 LOC raw `fetch()` | Framework + adapter |
