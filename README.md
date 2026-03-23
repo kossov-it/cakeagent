@@ -7,7 +7,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read. Under 2,000 lines of code, 9 files, 3 runtime dependencies.
+A personal AI agent you can actually read. Under 2,200 lines of code, 9 files, 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from MCP — an open standard with thousands of existing tool servers — not from custom plugin code. Ask "add Google Calendar" in chat and it installs itself.
 
