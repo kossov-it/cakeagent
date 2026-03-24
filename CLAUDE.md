@@ -13,10 +13,10 @@ Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to
 
 ## Directory Layout
 ```
-src/index.ts        — Orchestrator: poll loop, routing, scheduler, shutdown
+src/index.ts        — Orchestrator: poll loop, routing, debounce, scheduler, shutdown
 src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
-src/tools.ts        — In-process MCP server: 18 tools (createSdkMcpServer)
-src/hooks.ts        — Security hooks: 6 PreToolUse matchers + PreCompact archiver
+src/tools.ts        — In-process MCP server: 19 tools (createSdkMcpServer)
+src/hooks.ts        — Security hooks: 5 PreToolUse matchers + SubagentStart auditor + PreCompact archiver
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/config.ts       — .env loading

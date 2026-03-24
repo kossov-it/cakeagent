@@ -11,7 +11,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read — with just around 2,300 lines of code, 9 files, and 3 runtime dependencies.
+A personal AI agent you can actually read — with just around 2,400 lines of code, 9 files, and 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -40,10 +40,10 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | ~2,300 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | ~2,400 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
-| **Telegram** | 244 LOC raw `fetch()` | Framework + adapter |
+| **Telegram** | 274 LOC raw `fetch()` | Framework + adapter |
 | **Integrations** | MCP + skills.sh | Custom plugin marketplace |
 | **Security** | 5-layer defense, every tool call audited | Varies — some have critical RCEs |
 | **CVEs** | 0 | Multiple critical RCEs |
@@ -122,14 +122,14 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          561  Orchestrator, routing, scheduler, voice toggle
-src/tools.ts          426  18 MCP tools (in-process)
+src/index.ts          660  Orchestrator, routing, debounce, scheduler
+src/tools.ts          450  19 MCP tools (in-process)
 src/store.ts          295  SQLite: messages, schedules, groups, audit, skills
-channels/telegram.ts  244  Telegram adapter (raw fetch, retry, HTML)
-src/hooks.ts          244  Security hooks (Bash, Read, Grep, Glob, Write/Edit, PreCompact)
-src/types.ts          144  Type definitions + validation constants
+channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies)
+src/hooks.ts          272  Security hooks (Bash, Read, Grep, Glob, Write/Edit, PreCompact, SubagentStart)
+src/types.ts          159  Type definitions + validation constants
 src/voice.ts          129  Whisper STT + Edge TTS
-src/agent.ts          104  Claude Agent SDK wrapper + streaming
+src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
 src/config.ts          48  .env parser
 ```
 
@@ -181,7 +181,7 @@ Skills inject documentation and CLI knowledge directly into the agent's prompt. 
 
 | Tool | What it does |
 |------|-------------|
-| `send_message` | Send progress updates mid-conversation |
+| `send_message` / `send_file` | Send progress updates or files mid-conversation |
 | `schedule_task` / `list_schedules` / `update_schedule` / `delete_schedule` | Task scheduling |
 | `search_mcp_registry` | Search the official MCP registry |
 | `install_tool` / `remove_tool` / `list_tools` | Manage MCP servers |
@@ -217,7 +217,7 @@ CakeAgent gives Claude real system access — it installs packages, manages serv
 | **Sudoers** | Passwordless sudo limited to `apt-get`, `apt`, `dpkg`, `systemctl`, and `setup.sh` only |
 | **PreToolUse hooks** | Every Bash, Read, Grep, Glob, Write, and Edit call validated before execution |
 | **Agent controls** | `acceptEdits` permission mode, `maxTurns: 25`, sender allowlist, rate limiting |
-| **Runtime checks** | Prompt injection detection, memory/skill content sanitization, `.env` permission check on startup |
+| **Runtime checks** | Prompt injection detection, memory/skill content sanitization, startup permission auto-fix (`.env`, `data/`, `.mcp.json`, `credentials/`) |
 
 ### What's allowed
 
@@ -225,7 +225,7 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 
 ### What's blocked
 
-**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
+**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
 
 **System files**: `/etc/shadow`, `/etc/passwd`, `/etc/sudoers*`, `/etc/ssh/`, `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`, `/etc/fstab`, `/etc/sysctl.conf`, `/etc/apt/sources.list`, cakeagent's own service file. Agent can still configure nginx, mysql, cron, letsencrypt, systemd services, `sysctl.d/`, `sources.list.d/`, and any app it installs.
 
@@ -248,6 +248,8 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 | `/update` | Pull latest code, rebuild, restart |
 | `/restart` | Restart without updating |
 | `/help` | List commands |
+
+`/reset` clears the conversation session but keeps memory and settings. `/update` clears all sessions (context is stale after code changes). `/restart` preserves everything. Memory survives all operations.
 
 ### CLI
 

@@ -47,6 +47,8 @@ const BASH_DENY = [
   /\b(cat|less|more|head|tail)\b.*\.ssh\//,
   /\b(cat|less|more|head|tail)\b.*credentials\//,
   /\bsed\b.*\.env/,
+  /^\s*env\s*($|\|)/,                       // bare env or env piped (dumps all environment variables)
+  /\bprintenv\b/,                            // printenv (any form — no legitimate agent use)
 
   // Critical system files — block all access via Bash (reads, writes, redirects)
   // Agent can still configure nginx, mysql, letsencrypt, systemd services, sysctl.d, sources.list.d
@@ -237,6 +239,16 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
       },
     ],
     PostToolUse: [],
+    SubagentStart: [
+      {
+        matcher: '.*',
+        hooks: [async (input: HookInput) => {
+          const si = input as { agent_type?: string; agent_id?: string };
+          logAudit('subagent_start', `type=${si.agent_type ?? 'unknown'} id=${si.agent_id ?? 'unknown'}`);
+          return {};
+        }],
+      },
+    ],
     PreCompact: [
       {
         matcher: '.*',

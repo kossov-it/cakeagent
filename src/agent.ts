@@ -54,8 +54,15 @@ export async function runAgent(
         allowedTools: [
           'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
           'WebSearch', 'WebFetch',
+          'Agent',
           'mcp__cakeagent__*',
         ],
+        agents: {
+          worker: {
+            description: 'General-purpose worker for complex subtasks. Use when a task benefits from isolated context — research, multi-step file operations, or any work that would clutter the main conversation.',
+            prompt: 'You are a worker agent for a personal AI assistant. Complete the assigned task thoroughly and return concise results. You have the same tools as the main agent.',
+          },
+        },
         settingSources: ['project'],
         maxTurns: 25,
         mcpServers: {

@@ -12,6 +12,10 @@ export interface IncomingMessage {
   chatId: string;
   timestamp: number;
   isGroup: boolean;
+  replyTo?: {
+    text?: string;
+    senderName?: string;
+  };
 }
 
 export interface OutgoingMessage {

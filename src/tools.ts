@@ -207,7 +207,7 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             const mcpConfig = JSON.parse(readFileSync(MCP_JSON_PATH, 'utf-8'));
             if (mcpConfig.mcpServers?.[args.name]) {
               delete mcpConfig.mcpServers[args.name];
-              writeFileSync(MCP_JSON_PATH, JSON.stringify(mcpConfig, null, 2));
+              writeFileSync(MCP_JSON_PATH, JSON.stringify(mcpConfig, null, 2), { mode: 0o600 });
               store.logAudit('tool_removed', args.name);
               return { content: [{ type: 'text' as const, text: `Removed "${args.name}".` }] };
             }

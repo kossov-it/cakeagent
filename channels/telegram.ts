@@ -144,6 +144,7 @@ export function createTelegramChannel(
               const chatId = String(m.chat.id);
               if (!allowedChatIds().has(chatId)) continue;
 
+              const reply = m.reply_to_message;
               yield {
                 type: 'message',
                 message: {
@@ -165,6 +166,10 @@ export function createTelegramChannel(
                   chatId,
                   timestamp: m.date * 1000,
                   isGroup: m.chat.type !== 'private',
+                  replyTo: reply ? {
+                    text: m.quote?.text ?? reply.text ?? reply.caption,
+                    senderName: reply.from?.first_name,
+                  } : undefined,
                 },
               };
             }
