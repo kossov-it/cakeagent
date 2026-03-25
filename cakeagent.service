@@ -15,13 +15,28 @@ TimeoutStopSec=30
 
 EnvironmentFile=/opt/cakeagent/.env
 
-ProtectSystem=full
+# Filesystem: strict read-only baseline, scoped write access
+ProtectSystem=strict
+ReadWritePaths=/opt/cakeagent /usr /var /etc
+InaccessiblePaths=/etc/shadow /etc/gshadow /etc/sudoers /etc/sudoers.d /etc/ssh
+
+# Isolation
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
-ReadWritePaths=/opt /usr /var /etc
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+LockPersonality=true
+RestrictRealtime=true
+RestrictNamespaces=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+SystemCallArchitectures=native
+UMask=0077
+RemoveIPC=true
 
 StandardOutput=journal
 StandardError=journal

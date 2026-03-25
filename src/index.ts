@@ -133,7 +133,6 @@ const INJECTION_PATTERNS = [
 
 const DEBOUNCE_MS = 2000;
 const debounceTimers = new Map<string, NodeJS.Timeout>();
-const busyNotified = new Set<string>();
 const pendingChats = new Map<string, { groupFolder: string; lastProcessed: Map<string, number> }>();
 
 async function handleSettingsCallback(data: string, settings: CakeSettings, chatId: string): Promise<CakeSettings> {
@@ -344,15 +343,9 @@ function scheduleAgentRun(chatId: string, groupFolder: string, lastProcessed: Ma
     debounceTimers.delete(chatId);
 
     if (agentBusy) {
-      if (!busyNotified.has(chatId)) {
-        busyNotified.add(chatId);
-        await telegram.send(chatId, 'Still working on it — one moment.').catch(() => {});
-      }
       pendingChats.set(chatId, { groupFolder, lastProcessed });
       return;
     }
-
-    busyNotified.delete(chatId);
 
     try {
       await processChat(chatId, groupFolder, lastProcessed);
@@ -454,7 +447,6 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
     if (!next.done) {
       const [pendingChatId, { groupFolder: gf, lastProcessed: lp }] = next.value;
       pendingChats.delete(pendingChatId);
-      busyNotified.delete(pendingChatId);
       scheduleAgentRun(pendingChatId, gf, lp);
     }
   }
