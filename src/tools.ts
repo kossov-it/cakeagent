@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import * as store from './store.js';
 import type { SharedState, CakeSettings } from './types.js';
 import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE } from './types.js';
+import { parseCronExpression, computeNextCronRun, cronToHuman } from './cron.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
@@ -61,16 +62,35 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
 
       tool(
         'schedule_task',
-        'Create a scheduled or recurring task. Use interval for recurring, once for one-time reminders.',
+        'Create a scheduled or recurring task. Use cron for flexible schedules (e.g. "0 9 * * 1-5" = weekdays at 9am), interval for simple repeats, once for one-time reminders.',
         {
           task: z.string().describe('What the agent should do when the task fires'),
-          scheduleType: z.enum(['interval', 'once']).describe('Type of schedule'),
-          scheduleValue: z.string().describe('Interval in ms, or ISO timestamp for once'),
-          nextRun: z.string().describe('ISO 8601 timestamp of the next execution'),
+          scheduleType: z.enum(['interval', 'once', 'cron']).describe('Type: cron (5-field cron expression), interval (ms), once (one-time)'),
+          scheduleValue: z.string().describe('Cron expression (e.g. "30 9 * * *"), interval in ms, or ISO timestamp for once'),
+          nextRun: z.string().optional().describe('ISO 8601 timestamp of the next execution (auto-computed for cron)'),
+          recurring: z.boolean().optional().describe('Whether the task repeats (default: true for cron/interval, false for once)'),
           contextMode: z.enum(['group', 'isolated']).default('isolated')
             .describe('group = run with chat history, isolated = fresh session'),
         },
         async (args) => {
+          let nextRun = args.nextRun ?? '';
+          const recurring = args.recurring ?? (args.scheduleType !== 'once');
+
+          if (args.scheduleType === 'cron') {
+            const fields = parseCronExpression(args.scheduleValue);
+            if (!fields) {
+              return { content: [{ type: 'text' as const, text: `Invalid cron expression: "${args.scheduleValue}". Use 5-field format: minute hour day-of-month month day-of-week (e.g. "30 9 * * 1-5" for weekdays at 9:30am).` }] };
+            }
+            if (!nextRun) {
+              const next = computeNextCronRun(fields, new Date());
+              nextRun = next ? next.toISOString() : new Date(Date.now() + 60_000).toISOString();
+            }
+          }
+
+          if (!nextRun) {
+            return { content: [{ type: 'text' as const, text: 'nextRun is required for interval and once schedule types.' }] };
+          }
+
           state.pendingSchedules.push({
             action: 'create',
             task: {
@@ -80,11 +100,14 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
               scheduleType: args.scheduleType,
               scheduleValue: args.scheduleValue,
               contextMode: args.contextMode,
-              nextRun: args.nextRun,
+              nextRun,
+              recurring,
+              system: false,
               status: 'active',
             },
           });
-          return { content: [{ type: 'text' as const, text: `Task scheduled: "${args.task.slice(0, 80)}" — next run: ${args.nextRun}` }] };
+          const display = args.scheduleType === 'cron' ? cronToHuman(args.scheduleValue) : args.scheduleValue;
+          return { content: [{ type: 'text' as const, text: `Task scheduled: "${args.task.slice(0, 80)}" — ${display} — next run: ${nextRun}` }] };
         },
       ),
 
@@ -95,16 +118,25 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         async () => {
           const tasks = store.getAllSchedules();
           if (tasks.length === 0) return { content: [{ type: 'text' as const, text: 'No scheduled tasks.' }] };
-          const list = tasks.map(t => `#${t.id} [${t.status}] ${t.task} (${t.scheduleType}: ${t.scheduleValue}, next: ${t.nextRun})`).join('\n');
+          const list = tasks.map(t => {
+            const schedule = t.scheduleType === 'cron' ? cronToHuman(t.scheduleValue) : `${t.scheduleType}: ${t.scheduleValue}`;
+            const flags = [t.system ? 'system' : '', t.recurring ? 'recurring' : 'one-shot'].filter(Boolean).join(', ');
+            return `#${t.id} [${t.status}] ${t.task} (${schedule}, ${flags}, next: ${t.nextRun})`;
+          }).join('\n');
           return { content: [{ type: 'text' as const, text: list }] };
         },
       ),
 
       tool(
         'delete_schedule',
-        'Delete a scheduled task by ID',
+        'Delete a scheduled task by ID. System tasks (morning check-in, dream) cannot be deleted — disable them via update_settings instead.',
         { id: z.number().describe('Schedule ID to delete') },
         async (args) => {
+          const tasks = store.getAllSchedules();
+          const task = tasks.find(t => t.id === args.id);
+          if (task?.system) {
+            return { content: [{ type: 'text' as const, text: `Cannot delete system task #${args.id} ("${task.task.slice(0, 40)}"). To disable it, use update_settings to set its cron to an empty string (e.g. morningCheckinCron="" or dreamCron="").` }] };
+          }
           store.deleteSchedule(args.id);
           return { content: [{ type: 'text' as const, text: `Deleted schedule #${args.id}` }] };
         },

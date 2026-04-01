@@ -8,8 +8,10 @@ import { createTelegramChannel } from '../channels/telegram.js';
 import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, chmodSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage } from './types.js';
+import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask } from './types.js';
 import { VALID_MODELS } from './types.js';
+import { parseCronExpression, computeNextCronRun } from './cron.js';
+import { ensureSystemTasks } from './systemTasks.js';
 
 const config = loadConfig();
 store.initDb(config.dataDir);
@@ -112,6 +114,40 @@ function refreshBotCommands(force = false) {
   telegram.setCommands(commands);
 }
 refreshBotCommands(true);
+
+// --- KAIROS: System tasks + missed task recovery ---
+ensureSystemTasks(config.telegramChatId, config.dataDir);
+
+const taskQueue: ScheduledTask[] = [];
+
+// Recover tasks missed while offline
+{
+  const missed = store.getMissedSchedules(new Date().toISOString());
+  for (const task of missed) {
+    if (task.recurring) {
+      // Silently advance recurring tasks to next future occurrence
+      if (task.scheduleType === 'cron') {
+        const fields = parseCronExpression(task.scheduleValue);
+        if (fields) {
+          const next = computeNextCronRun(fields, new Date());
+          if (next) store.updateSchedule(task.id, { nextRun: next.toISOString(), lastRun: new Date().toISOString() } as any);
+        }
+      } else {
+        const ms = Number(task.scheduleValue);
+        if (!isNaN(ms) && ms > 0) {
+          store.updateSchedule(task.id, { nextRun: new Date(Date.now() + ms).toISOString(), lastRun: new Date().toISOString() } as any);
+        }
+      }
+    } else {
+      // Queue missed one-shot tasks to fire
+      taskQueue.push(task);
+      console.log(`[scheduler] Recovered missed one-shot task #${task.id}: "${task.task.slice(0, 60)}"`);
+    }
+  }
+  if (taskQueue.length > 0) {
+    console.log(`[scheduler] ${taskQueue.length} missed task(s) queued for execution`);
+  }
+}
 
 const startTime = Date.now();
 console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.telegramChatId}`);
@@ -418,6 +454,8 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
           ...op.task,
           chatId: op.task.chatId || chatId,
           groupFolder: op.task.groupFolder || groupFolder,
+          recurring: op.task.recurring ?? (op.task.scheduleType !== 'once'),
+          system: op.task.system ?? false,
         });
       }
     }
@@ -448,57 +486,86 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
       const [pendingChatId, { groupFolder: gf, lastProcessed: lp }] = next.value;
       pendingChats.delete(pendingChatId);
       scheduleAgentRun(pendingChatId, gf, lp);
+    } else if (taskQueue.length > 0) {
+      // No pending chats — drain one queued scheduled task
+      const queued = taskQueue.shift()!;
+      console.log(`[scheduler] Executing queued task #${queued.id} after agent run`);
+      executeScheduledTask(queued).catch(err => console.error('[scheduler] Queued task failed:', err));
     }
+  }
+}
+
+async function executeScheduledTask(task: ScheduledTask): Promise<void> {
+  try {
+    agentBusy = true;
+    state.currentGroupFolder = task.groupFolder;
+    const prompt = `[SCHEDULED TASK]\n\n${task.task}`;
+    const sessionId = task.contextMode === 'group' ? (store.getSession(task.groupFolder) ?? undefined) : undefined;
+    const currentSettings = store.loadSettings();
+
+    const { result } = await runAgent(
+      { prompt, groupFolder: task.groupFolder, chatId: task.chatId, sessionId },
+      { picoServer, hooks, settings: currentSettings, groupsDir },
+    );
+
+    for (const msg of state.pendingMessages.splice(0)) {
+      await telegram.send(msg.chatId || task.chatId, msg.text);
+    }
+    for (const file of state.pendingFiles.splice(0)) {
+      await telegram.sendFile(file.chatId || task.chatId, file.filePath, file.caption);
+    }
+
+    if (result) await telegram.send(task.chatId, result);
+
+    const now = new Date().toISOString();
+    if (!task.recurring) {
+      store.updateSchedule(task.id, { status: 'completed' } as any);
+    } else if (task.scheduleType === 'cron') {
+      const fields = parseCronExpression(task.scheduleValue);
+      if (fields) {
+        const next = computeNextCronRun(fields, new Date());
+        if (next) store.updateSchedule(task.id, { nextRun: next.toISOString(), lastRun: now } as any);
+      }
+    } else {
+      const ms = Number(task.scheduleValue);
+      const nextRun = isNaN(ms) || ms <= 0
+        ? new Date(Date.now() + 60 * 60_000).toISOString()
+        : new Date(Date.now() + ms).toISOString();
+      store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
+    }
+  } catch (err) {
+    const errMsg = (err as Error).message;
+    console.error(`[scheduler] Task #${task.id} failed:`, errMsg);
+    store.updateSchedule(task.id, { lastError: errMsg } as any);
+    telegram.send(task.chatId, `Scheduled task #${task.id} failed: ${errMsg.slice(0, 200)}`).catch(() => {});
+  } finally {
+    agentBusy = false;
   }
 }
 
 const schedulerInterval = setInterval(async () => {
   if (agentBusy) return;
+
+  // Drain one queued task first (missed tasks from startup or busy-skips)
+  if (taskQueue.length > 0) {
+    const queued = taskQueue.shift()!;
+    console.log(`[scheduler] Executing queued task #${queued.id}`);
+    await executeScheduledTask(queued);
+    return;
+  }
+
   const now = new Date().toISOString();
   const due = store.getDueSchedules(now);
 
   for (const task of due) {
-    if (agentBusy) break;
-    try {
-      agentBusy = true;
-      state.currentGroupFolder = task.groupFolder;
-      const prompt = `[SCHEDULED TASK]\n\n${task.task}`;
-      const sessionId = task.contextMode === 'group' ? (store.getSession(task.groupFolder) ?? undefined) : undefined;
-      const currentSettings = store.loadSettings();
-
-      const { result } = await runAgent(
-        { prompt, groupFolder: task.groupFolder, chatId: task.chatId, sessionId },
-        { picoServer, hooks, settings: currentSettings, groupsDir },
-      );
-
-      for (const msg of state.pendingMessages.splice(0)) {
-        await telegram.send(msg.chatId || task.chatId, msg.text);
-      }
-      for (const file of state.pendingFiles.splice(0)) {
-        await telegram.sendFile(file.chatId || task.chatId, file.filePath, file.caption);
-      }
-
-      if (result) await telegram.send(task.chatId, result);
-
-      if (task.scheduleType === 'once') {
-        store.updateSchedule(task.id, { status: 'completed' } as any);
-      } else {
-        const ms = Number(task.scheduleValue);
-        const nextRun = isNaN(ms) || ms <= 0
-          ? new Date(Date.now() + 60 * 60_000).toISOString()
-          : new Date(Date.now() + ms).toISOString();
-        store.updateSchedule(task.id, { nextRun, lastRun: now } as any);
-      }
-    } catch (err) {
-      const errMsg = (err as Error).message;
-      console.error(`[scheduler] Task #${task.id} failed:`, errMsg);
-      store.updateSchedule(task.id, { lastError: errMsg } as any);
-      telegram.send(task.chatId, `Scheduled task #${task.id} failed: ${errMsg.slice(0, 200)}`).catch(() => {});
-    } finally {
-      agentBusy = false;
+    if (agentBusy) {
+      // Queue remaining due tasks instead of dropping them
+      taskQueue.push(task);
+      continue;
     }
+    await executeScheduledTask(task);
   }
-}, 60_000);
+}, 15_000);
 
 let messagesProcessed = 0;
 const heartbeatInterval = setInterval(() => {
