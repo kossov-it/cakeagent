@@ -170,6 +170,11 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
     settings.model = val;
   } else if (key === 'thinking' && VALID_THINKING.has(val)) {
     settings.thinkingLevel = val;
+  } else if (key === 'morningCheckin') {
+    settings.morningCheckinCron = settings.morningCheckinCron ? '' : '57 8 * * *';
+    store.saveSettings(settings);
+    ensureSystemTasks(config.telegramChatId, config.dataDir);
+    return settings;
   } else if (key === 'voiceReceive' || key === 'voiceSend') {
     const wasAnyOn = settings.voiceReceive || settings.voiceSend;
     settings[key] = !settings[key];
