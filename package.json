@@ -9,7 +9,7 @@
     "dev": "tsx src/index.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.81",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.90",
     "better-sqlite3": "^12.8.0",
     "zod": "^4.0.0"
   },
