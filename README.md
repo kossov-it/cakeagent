@@ -11,7 +11,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read — with just around 2,400 lines of code, 9 files, and 3 runtime dependencies.
+A personal AI agent you can actually read — with just around 2,900 lines of code, 11 files, and 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -40,7 +40,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | ~2,400 LOC, 9 files | 400K+ LOC, 50+ modules |
+| **Source code** | ~2,900 LOC, 11 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 274 LOC raw `fetch()` | Framework + adapter |
@@ -122,12 +122,14 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          660  Orchestrator, routing, debounce, scheduler
-src/tools.ts          450  19 MCP tools (in-process)
-src/store.ts          295  SQLite: messages, schedules, groups, audit, skills
+src/index.ts          750  Orchestrator, routing, debounce, cron scheduler, memory extraction
+src/tools.ts          480  19 MCP tools with cron support (in-process)
+src/cron.ts           200  Cron expression parser (ported from Claude Code KAIROS)
+src/store.ts          310  SQLite: messages, schedules, groups, audit, skills
 channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies)
-src/hooks.ts          272  Security hooks (Bash, Read, Grep, Glob, Write/Edit, PreCompact, SubagentStart)
-src/types.ts          159  Type definitions + validation constants
+src/hooks.ts          285  Security hooks (40+ Bash patterns, Read, Grep, Glob, Write/Edit)
+src/systemTasks.ts    100  System tasks: morning check-in + dream/consolidation
+src/types.ts          170  Type definitions + validation constants
 src/voice.ts          129  Whisper STT + Edge TTS
 src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
 src/config.ts          48  .env parser
@@ -153,7 +155,21 @@ Responses are streamed as the agent works. If Claude produces intermediate text 
 
 The agent has persistent memory in `data/memory.md`. It's injected into every prompt automatically — the agent always sees it. When you say "remember that..." or "from now on...", the agent writes to memory. It also cleans up stale entries periodically via `rewrite_memory`.
 
+**Auto-extraction**: Every 5 conversations (configurable via `memoryExtractionInterval`), a background agent reviews recent messages and automatically saves new facts, preferences, and corrections to memory — without you explicitly asking. Inspired by Claude Code's memory extraction service.
+
 Memory survives restarts and `/reset`. The `/reset` command only clears the Claude SDK session (conversation turns), not learned preferences.
+
+### Autonomous behavior
+
+Three system tasks run automatically (configurable via settings, disable by setting cron to empty string):
+
+| Task | Default schedule | What it does |
+|------|-----------------|-------------|
+| **Morning check-in** | 8:57am daily | Reviews memory and scheduled tasks, sends a brief daily summary |
+| **Dream** | 3:23am daily | Consolidates memory — removes outdated entries, merges duplicates, fixes contradictions |
+| **Memory extraction** | Every 5 conversations | Reviews recent messages, saves new facts/preferences to memory |
+
+Scheduling uses standard 5-field cron expressions (ported from Claude Code's KAIROS assistant mode). Missed tasks are recovered on restart — one-shot tasks fire, recurring tasks silently advance.
 
 ---
 
@@ -182,7 +198,7 @@ Skills inject documentation and CLI knowledge directly into the agent's prompt. 
 | Tool | What it does |
 |------|-------------|
 | `send_message` / `send_file` | Send progress updates or files mid-conversation |
-| `schedule_task` / `list_schedules` / `update_schedule` / `delete_schedule` | Task scheduling |
+| `schedule_task` / `list_schedules` / `update_schedule` / `delete_schedule` | Task scheduling with cron expressions (e.g. `0 9 * * 1-5` = weekdays at 9am) |
 | `search_mcp_registry` | Search the official MCP registry |
 | `install_tool` / `remove_tool` / `list_tools` | Manage MCP servers |
 | `install_skill` / `remove_skill` / `list_skills` | Manage skills.sh integrations |
@@ -225,7 +241,7 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 
 ### What's blocked
 
-**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Commands are normalized (quotes stripped) before pattern matching.
+**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Enhanced with validators ported from Claude Code: Unicode whitespace injection, control characters, IFS manipulation, process substitution, `/proc/environ` access, zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching.
 
 **System files**: `/etc/shadow`, `/etc/passwd`, `/etc/sudoers*`, `/etc/ssh/`, `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`, `/etc/fstab`, `/etc/sysctl.conf`, `/etc/apt/sources.list`, cakeagent's own service file. Agent can still configure nginx, mysql, cron, letsencrypt, systemd services, `sysctl.d/`, `sources.list.d/`, and any app it installs.
 

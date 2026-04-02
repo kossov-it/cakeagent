@@ -391,6 +391,50 @@ function scheduleAgentRun(chatId: string, groupFolder: string, lastProcessed: Ma
   }, DEBOUNCE_MS));
 }
 
+// --- Auto memory extraction (inspired by Claude Code's extract-memories service) ---
+
+async function extractMemory(chatId: string, groupFolder: string, currentSettings: CakeSettings): Promise<void> {
+  try {
+    const memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
+    const recent = store.getMessagesSince(chatId, Date.now() - 60 * 60_000, 20);
+    if (recent.length === 0) return;
+
+    const messagesXml = formatPrompt(recent);
+    const prompt = `You are a memory extraction agent. Review recent messages and extract new information.
+
+[CURRENT MEMORY]
+${memory || '(empty)'}
+[/CURRENT MEMORY]
+
+[RECENT MESSAGES]
+${messagesXml}
+[/RECENT MESSAGES]
+
+Instructions:
+1. Scan messages for NEW facts, preferences, corrections, or context not already in memory.
+2. If found, use update_memory to append concise bullet points (1-3 per extraction).
+3. Extract only truly new information — skip anything already captured.
+4. If nothing new, respond "Memory up to date." and do NOT call update_memory.`;
+
+    await runAgent(
+      { prompt, groupFolder, chatId },
+      { picoServer, hooks, settings: currentSettings, groupsDir },
+    );
+
+    for (const msg of state.pendingMessages.splice(0)) {
+      // Discard extraction agent messages — extraction is silent
+    }
+    state.pendingFiles.splice(0);
+    for (const op of state.pendingSchedules.splice(0)) {
+      // Discard any schedules the extraction agent might create
+    }
+
+    store.logAudit('memory_extraction', `group=${groupFolder}`);
+  } catch (err) {
+    console.error('[extraction] Failed:', (err as Error).message);
+  }
+}
+
 async function processChat(chatId: string, groupFolder: string, lastProcessed: Map<string, number>) {
   agentBusy = true;
 
@@ -476,6 +520,21 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
     }
 
     refreshBotCommands();
+
+    // Auto memory extraction — every N turns, extract new facts from conversation
+    if (currentSettings.memoryExtractionEnabled) {
+      const turnCount = Number(store.getKv(`extraction:turns:${groupFolder}`) ?? '0') + 1;
+      store.setKv(`extraction:turns:${groupFolder}`, String(turnCount));
+
+      if (turnCount % currentSettings.memoryExtractionInterval === 0) {
+        // Skip if agent already wrote to memory this turn (mutual exclusion)
+        const memoryWrittenThisTurn = store.hasRecentAuditEvent('memory_rewritten', 30_000);
+        if (!memoryWrittenThisTurn) {
+          console.log(`[extraction] Running auto memory extraction (turn ${turnCount})`);
+          await extractMemory(chatId, groupFolder, currentSettings);
+        }
+      }
+    }
   } finally {
     telegram.stopTyping();
     agentBusy = false;

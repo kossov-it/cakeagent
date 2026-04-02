@@ -94,6 +94,18 @@ const BASH_DENY = [
   /\bmv\b.*\/(src|channels|dist)\//,        // move over source
   />\s*\S*\/data\/skills\//,          // redirect to skills directory
   /\bnpm\s+run\s+build\b/,           // block recompiling (only /update should build)
+
+  // Enhanced validators ported from Claude Code's bashSecurity.ts
+  /[\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/, // unicode whitespace — invisible command separators
+  /[\x00-\x08\x0B\x0C\x0E-\x1F]/,                       // control characters — parser confusion
+  /\bIFS\s*=/,                                            // IFS injection — changes field separator
+  /<\(/,                                                  // process substitution <()
+  />\(/,                                                  // process substitution >()
+  /\{[^}]*[;&|][^}]*\}/,                                 // brace expansion with dangerous content
+  /\/proc\/(self|\d+)\/environ/,                          // reads process environment variables
+  /\b(zmodload|zpty|ztcp|zsocket|sysopen|sysread|syswrite)\b/, // zsh dangerous builtins
+  /\bjq\b.*@base64d/,                                    // jq system function — shell exec via decode
+  /--\$[{(]/,                                             // obfuscated flags hiding intent
 ];
 
 // Protected file paths — agent must not modify these

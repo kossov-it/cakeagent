@@ -304,6 +304,14 @@ export function setKv(key: string, value: string): void {
   db.prepare(`INSERT OR REPLACE INTO kv (key, value) VALUES (?, ?)`).run(key, value);
 }
 
+// --- Audit Helpers ---
+
+export function hasRecentAuditEvent(event: string, sinceMs: number): boolean {
+  const cutoff = new Date(Date.now() - sinceMs).toISOString();
+  const row = db.prepare(`SELECT 1 FROM audit_log WHERE event = ? AND created_at > ? LIMIT 1`).get(event, cutoff);
+  return !!row;
+}
+
 // --- Cleanup ---
 
 export const MAX_MEMORY_SIZE = 50 * 1024; // 50 KB

@@ -112,6 +112,8 @@ export interface CakeSettings {
   agentTimeoutMs: number;
   morningCheckinCron: string;
   dreamCron: string;
+  memoryExtractionEnabled: boolean;
+  memoryExtractionInterval: number;
 }
 
 export const DEFAULT_SETTINGS: CakeSettings = {
@@ -129,6 +131,8 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   agentTimeoutMs: 300_000,
   morningCheckinCron: '57 8 * * *',
   dreamCron: '23 3 * * *',
+  memoryExtractionEnabled: true,
+  memoryExtractionInterval: 5,
 };
 
 export const VALID_MODELS = new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']);
