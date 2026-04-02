@@ -36,7 +36,7 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire orchestrator is around 2,300 lines. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire codebase is around 2,900 lines across 11 files. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
@@ -122,16 +122,16 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          750  Orchestrator, routing, debounce, cron scheduler, memory extraction
-src/tools.ts          480  19 MCP tools with cron support (in-process)
-src/cron.ts           200  Cron expression parser (ported from Claude Code KAIROS)
-src/store.ts          310  SQLite: messages, schedules, groups, audit, skills
-channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies)
-src/hooks.ts          285  Security hooks (40+ Bash patterns, Read, Grep, Glob, Write/Edit)
-src/systemTasks.ts    100  System tasks: morning check-in + dream/consolidation
-src/types.ts          170  Type definitions + validation constants
+src/index.ts          770  Orchestrator, routing, debounce, cron scheduler, memory extraction
+src/tools.ts          471  19 MCP tools with cron support (in-process)
+src/store.ts          321  SQLite: messages, schedules, groups, audit, skills
+src/hooks.ts          275  Security hooks (40+ Bash patterns, Read, Grep, Glob, Write/Edit)
+channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
+src/cron.ts           234  Cron expression parser + cronToHuman (ported from Claude Code KAIROS)
+src/types.ts          182  Type definitions, shared constants, validation
 src/voice.ts          129  Whisper STT + Edge TTS
 src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
+src/systemTasks.ts     97  System tasks: morning check-in + dream/consolidation
 src/config.ts          48  .env parser
 ```
 
@@ -258,7 +258,7 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 | Command | What it does |
 |---------|-------------|
 | `/status` | Model, uptime, skills, active tasks, voice status |
-| `/settings` | Inline keyboard — model (Haiku/Sonnet/Opus), thinking level, voice in/out |
+| `/settings` | Inline keyboard — model (Haiku/Sonnet/Opus), thinking level, voice in/out, morning brief |
 | `/skills` | List installed skills with source and install date |
 | `/reset` | Clear conversation session (keeps memory and settings) |
 | `/update` | Pull latest code, rebuild, restart |
