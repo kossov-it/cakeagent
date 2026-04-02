@@ -40,12 +40,8 @@ const BASH_DENY = [
   /;\s*rm\s+-rf?\s/,                   // chained destructive rm
   /\bdd\b.*\bof=/,                     // disk write
 
-  // Secret access
-  /\b(cat|less|more|head|tail)\b.*\.(env|pem)\b/,
-  /\b(cat|less|more|head|tail)\b.*\/etc\/(shadow|passwd)/,
-  /\b(cat|less|more|head|tail)\b.*id_rsa/,
-  /\b(cat|less|more|head|tail)\b.*\.ssh\//,
-  /\b(cat|less|more|head|tail)\b.*credentials\//,
+  // Secret access — block reading sensitive files via common viewers
+  /\b(cat|less|more|head|tail)\b.*(\.(env|pem)\b|\/etc\/(shadow|passwd)|id_rsa|\.ssh\/|credentials\/)/,
   /\bsed\b.*\.env/,
   /^\s*env\s*($|\|)/,                       // bare env or env piped (dumps all environment variables)
   /\bprintenv\b/,                            // printenv (any form — no legitimate agent use)
@@ -85,13 +81,8 @@ const BASH_DENY = [
   /\b(nft|iptables)\b.*\bdport\s+22\b/,        // protect SSH port
 
   // Source code protection — block bash writes to project files
-  />\s*\S*\/src\//,                    // redirect to src/
-  />\s*\S*\/channels\//,              // redirect to channels/
-  />\s*\S*\/dist\//,                  // redirect to dist/
-  /\bsed\s+-i\b.*\/(src|channels|dist)\//,  // in-place edit of source
-  /\btee\b.*\/(src|channels|dist)\//,       // tee to source
-  /\bcp\b.*\/(src|channels|dist)\//,        // copy over source
-  /\bmv\b.*\/(src|channels|dist)\//,        // move over source
+  />\s*\S*\/(src|channels|dist)\//,                      // redirect to source dirs
+  /\b(sed\s+-i|tee|cp|mv)\b.*\/(src|channels|dist)\//,  // in-place edit/copy/move to source
   />\s*\S*\/data\/skills\//,          // redirect to skills directory
   /\bnpm\s+run\s+build\b/,           // block recompiling (only /update should build)
 

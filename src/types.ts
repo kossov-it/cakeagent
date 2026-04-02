@@ -135,6 +135,19 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   memoryExtractionInterval: 5,
 };
 
+export const INJECTION_PATTERNS = [
+  /ignore\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)/i,
+  /disregard\s+(all\s+)?(previous|prior)/i,
+  /you\s+are\s+now\s+(a|an)\s+/i,
+  /system\s*:\s*(prompt|override|command)/i,
+  /\[System\s*Message\]/i,
+];
+
+export const CREDENTIAL_PATTERNS = [
+  /(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S{20,}/i,
+  /\b(sk-ant-|sk-|ghp_|gho_|xoxb-|xoxp-|glpat-)[a-zA-Z0-9_-]{20,}/,
+];
+
 export const VALID_MODELS = new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']);
 export const VALID_THINKING_LEVELS = new Set(['off', 'low', 'medium', 'high']);
 export const VALID_TTS_VOICE_RE = /^[a-z]{2,3}-[A-Z]{2,4}-\w+Neural$/;
@@ -145,8 +158,6 @@ export interface ScheduleOp {
   action: 'create';
   task: Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'>;
 }
-
-export interface ScheduleCreateFields extends Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'> {}
 
 export interface PendingFile {
   chatId: string;

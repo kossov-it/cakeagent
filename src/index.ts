@@ -9,7 +9,7 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, chmodSync
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask } from './types.js';
-import { VALID_MODELS } from './types.js';
+import { VALID_MODELS, INJECTION_PATTERNS } from './types.js';
 import { parseCronExpression, computeNextCronRun } from './cron.js';
 import { ensureSystemTasks } from './systemTasks.js';
 
@@ -159,14 +159,6 @@ checkVoiceDeps().then(({ missing }) => {
 
 const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
 
-const INJECTION_PATTERNS = [
-  /ignore\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)/i,
-  /disregard\s+(all\s+)?(previous|prior)/i,
-  /you\s+are\s+now\s+(a|an)\s+/i,
-  /system\s*:\s*(prompt|override|command)/i,
-  /\[System\s*Message\]/i,
-];
-
 const DEBOUNCE_MS = 2000;
 const debounceTimers = new Map<string, NodeJS.Timeout>();
 const pendingChats = new Map<string, { groupFolder: string; lastProcessed: Map<string, number> }>();
@@ -297,7 +289,8 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
         `*cakeagent*\nModel: \`${s.model}\`\nThinking: \`${s.thinkingLevel}\`\n` +
         `Groups: ${groups.length}\nActive tasks: ${store.countActiveSchedules()}\n` +
         `Skills: ${Object.keys(store.loadSkillIndex()).length}\n` +
-        `Voice in: ${s.voiceReceive ? 'on' : 'off'} | out: ${s.voiceSend ? 'on' : 'off'}\nUptime: ${uptime} min`
+        `Voice in: ${s.voiceReceive ? 'on' : 'off'} | out: ${s.voiceSend ? 'on' : 'off'}\n` +
+        `Messages: ${messagesProcessed}\nUptime: ${uptime} min`
       );
       return true;
     }
@@ -421,13 +414,10 @@ Instructions:
       { picoServer, hooks, settings: currentSettings, groupsDir },
     );
 
-    for (const msg of state.pendingMessages.splice(0)) {
-      // Discard extraction agent messages — extraction is silent
-    }
+    // Discard extraction agent side-effects — extraction is silent
+    state.pendingMessages.splice(0);
     state.pendingFiles.splice(0);
-    for (const op of state.pendingSchedules.splice(0)) {
-      // Discard any schedules the extraction agent might create
-    }
+    state.pendingSchedules.splice(0);
 
     store.logAudit('memory_extraction', `group=${groupFolder}`);
   } catch (err) {

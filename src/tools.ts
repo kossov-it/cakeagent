@@ -4,27 +4,16 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, renameS
 import { join, resolve } from 'node:path';
 import * as store from './store.js';
 import type { SharedState, CakeSettings } from './types.js';
-import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE } from './types.js';
+import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE, INJECTION_PATTERNS, CREDENTIAL_PATTERNS } from './types.js';
 import { parseCronExpression, computeNextCronRun, cronToHuman } from './cron.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
 
 function sanitizeMemory(content: string): string {
-  const INJECTION_RE = [
-    /ignore\s+(all\s+)?(previous|prior)\s+(instructions?|prompts?)/i,
-    /disregard\s+(all\s+)?(previous|prior)/i,
-    /you\s+are\s+now\s+(a|an)\s+/i,
-    /system\s*:\s*(prompt|override|command)/i,
-    /\[System\s*Message\]/i,
-  ];
-  const CREDENTIAL_RE = [
-    /(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S{20,}/i,
-    /\b(sk-ant-|sk-|ghp_|gho_|xoxb-|xoxp-|glpat-)[a-zA-Z0-9_-]{20,}/,
-  ];
   return content.split('\n').filter(line =>
-    !INJECTION_RE.some(p => p.test(line)) &&
-    !CREDENTIAL_RE.some(p => p.test(line))
+    !INJECTION_PATTERNS.some(p => p.test(line)) &&
+    !CREDENTIAL_PATTERNS.some(p => p.test(line))
   ).join('\n');
 }
 
