@@ -74,11 +74,13 @@ export interface ScheduledTask {
   groupFolder: string;
   chatId: string;
   task: string;
-  scheduleType: 'interval' | 'once';
+  scheduleType: 'interval' | 'once' | 'cron';
   scheduleValue: string;
   contextMode: 'group' | 'isolated';
   nextRun: string;
   status: 'active' | 'paused' | 'completed';
+  recurring: boolean;
+  system: boolean;
   lastRun: string | null;
   lastError: string | null;
   createdAt: string;
@@ -108,6 +110,8 @@ export interface CakeSettings {
   rateLimitMax: number;
   rateLimitWindow: number;
   agentTimeoutMs: number;
+  morningCheckinCron: string;
+  dreamCron: string;
 }
 
 export const DEFAULT_SETTINGS: CakeSettings = {
@@ -123,6 +127,8 @@ export const DEFAULT_SETTINGS: CakeSettings = {
   rateLimitMax: 10,
   rateLimitWindow: 60_000,
   agentTimeoutMs: 300_000,
+  morningCheckinCron: '57 8 * * *',
+  dreamCron: '23 3 * * *',
 };
 
 export const VALID_MODELS = new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']);
@@ -135,6 +141,8 @@ export interface ScheduleOp {
   action: 'create';
   task: Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'>;
 }
+
+export interface ScheduleCreateFields extends Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'> {}
 
 export interface PendingFile {
   chatId: string;

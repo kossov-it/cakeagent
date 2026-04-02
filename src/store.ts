@@ -70,6 +70,15 @@ export function initDb(dir: string): void {
       value TEXT NOT NULL
     );
   `);
+
+  // Migrations: add columns for KAIROS-style cron scheduling
+  const migrations = [
+    `ALTER TABLE schedules ADD COLUMN recurring INTEGER DEFAULT 1`,
+    `ALTER TABLE schedules ADD COLUMN system INTEGER DEFAULT 0`,
+  ];
+  for (const sql of migrations) {
+    try { db.exec(sql); } catch { /* column already exists */ }
+  }
 }
 
 // --- Messages ---
@@ -128,15 +137,16 @@ export function setSession(groupFolder: string, sessionId: string): void {
 
 export function addSchedule(task: Omit<ScheduledTask, 'id' | 'lastRun' | 'lastError' | 'createdAt'>): number {
   const result = db.prepare(
-    `INSERT INTO schedules (group_folder, chat_id, task, schedule_type, schedule_value, context_mode, next_run, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(task.groupFolder, task.chatId, task.task, task.scheduleType, task.scheduleValue, task.contextMode, task.nextRun, task.status);
+    `INSERT INTO schedules (group_folder, chat_id, task, schedule_type, schedule_value, context_mode, next_run, status, recurring, system)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(task.groupFolder, task.chatId, task.task, task.scheduleType, task.scheduleValue, task.contextMode, task.nextRun, task.status, task.recurring ? 1 : 0, task.system ? 1 : 0);
   return Number(result.lastInsertRowid);
 }
 
 const SCHEDULE_SELECT = `SELECT id, group_folder as groupFolder, chat_id as chatId, task,
   schedule_type as scheduleType, schedule_value as scheduleValue,
   context_mode as contextMode, next_run as nextRun, status,
+  COALESCE(recurring, 1) as recurring, COALESCE(system, 0) as system,
   last_run as lastRun, last_error as lastError, created_at as createdAt
   FROM schedules`;
 
@@ -151,7 +161,7 @@ export function getAllSchedules(): ScheduledTask[] {
 const SCHEDULE_COLUMNS: Record<string, string> = {
   task: 'task', scheduleType: 'schedule_type', scheduleValue: 'schedule_value',
   contextMode: 'context_mode', nextRun: 'next_run', status: 'status',
-  lastRun: 'last_run', lastError: 'last_error',
+  lastRun: 'last_run', lastError: 'last_error', recurring: 'recurring', system: 'system',
 };
 
 export function updateSchedule(id: number, fields: Partial<ScheduledTask>): void {
@@ -170,6 +180,14 @@ export function updateSchedule(id: number, fields: Partial<ScheduledTask>): void
 
 export function deleteSchedule(id: number): void {
   db.prepare(`DELETE FROM schedules WHERE id = ?`).run(id);
+}
+
+export function getMissedSchedules(now: string): ScheduledTask[] {
+  return db.prepare(`${SCHEDULE_SELECT} WHERE next_run < ? AND status = 'active'`).all(now) as ScheduledTask[];
+}
+
+export function getScheduleByTask(taskDescription: string): ScheduledTask | undefined {
+  return db.prepare(`${SCHEDULE_SELECT} WHERE task = ? AND status = 'active' LIMIT 1`).get(taskDescription) as ScheduledTask | undefined;
 }
 
 // --- Rate Limits ---
