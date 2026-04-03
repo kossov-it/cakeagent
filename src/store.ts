@@ -71,7 +71,7 @@ export function initDb(dir: string): void {
     );
   `);
 
-  // Migrations: add columns for KAIROS-style cron scheduling
+  // Migrations: add columns for cron scheduling
   const migrations = [
     `ALTER TABLE schedules ADD COLUMN recurring INTEGER DEFAULT 1`,
     `ALTER TABLE schedules ADD COLUMN system INTEGER DEFAULT 0`,

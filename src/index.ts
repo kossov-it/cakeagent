@@ -115,7 +115,7 @@ function refreshBotCommands(force = false) {
 }
 refreshBotCommands(true);
 
-// --- KAIROS: System tasks + missed task recovery ---
+// --- System tasks + missed task recovery ---
 ensureSystemTasks(config.telegramChatId, config.dataDir);
 
 const taskQueue: ScheduledTask[] = [];

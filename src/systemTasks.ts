@@ -1,4 +1,4 @@
-// System tasks: autonomous behaviors inspired by KAIROS (Claude Code's assistant mode).
+// System tasks: autonomous behaviors (morning check-in, dream/memory consolidation).
 // Creates morning check-in and dream/memory consolidation tasks on first boot.
 
 import * as store from './store.js';

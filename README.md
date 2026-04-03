@@ -127,7 +127,7 @@ src/tools.ts          471  19 MCP tools with cron support (in-process)
 src/store.ts          321  SQLite: messages, schedules, groups, audit, skills
 src/hooks.ts          275  Security hooks (40+ Bash patterns, Read, Grep, Glob, Write/Edit)
 channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
-src/cron.ts           234  Cron expression parser + cronToHuman (ported from Claude Code KAIROS)
+src/cron.ts           234  Cron expression parser + cronToHuman (standard 5-field format)
 src/types.ts          182  Type definitions, shared constants, validation
 src/voice.ts          129  Whisper STT + Edge TTS
 src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
@@ -169,7 +169,7 @@ Three system tasks run automatically (configurable via settings, disable by sett
 | **Dream** | 3:23am daily | Consolidates memory — removes outdated entries, merges duplicates, fixes contradictions |
 | **Memory extraction** | Every 5 conversations | Reviews recent messages, saves new facts/preferences to memory |
 
-Scheduling uses standard 5-field cron expressions (ported from Claude Code's KAIROS assistant mode). Missed tasks are recovered on restart — one-shot tasks fire, recurring tasks silently advance.
+Scheduling uses standard 5-field cron expressions (standard 5-field format). Missed tasks are recovered on restart — one-shot tasks fire, recurring tasks silently advance.
 
 ---
 

@@ -1,5 +1,5 @@
 // Minimal cron expression parsing and next-run calculation.
-// Ported from Claude Code's KAIROS assistant mode (src/utils/cron.ts).
+// Supports standard 5-field expressions (minute hour day month weekday).
 //
 // Supports the standard 5-field cron subset:
 //   minute hour day-of-month month day-of-week
