@@ -11,7 +11,7 @@
 ![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read — with just around 2,900 lines of code, 11 files, and 3 runtime dependencies.
+A personal AI agent you can actually read — around 2,900 lines of code, 11 files, and 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -36,7 +36,7 @@ sudo bash /opt/cakeagent/setup.sh uninstall
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire codebase is around 2,900 lines across 11 files. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire codebase is ~2,900 lines across 11 files. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
@@ -45,7 +45,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 274 LOC raw `fetch()` | Framework + adapter |
 | **Integrations** | MCP + skills.sh | Custom plugin marketplace |
-| **Security** | 5-layer defense, every tool call audited | Varies — some have critical RCEs |
+| **Security** | 5-layer defense, 60+ deny patterns, every tool call audited | Varies — some have critical RCEs |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ---
@@ -122,11 +122,11 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          770  Orchestrator, routing, debounce, cron scheduler, memory extraction
+src/index.ts          773  Orchestrator, routing, debounce, cron scheduler, memory extraction
 src/tools.ts          471  19 MCP tools with cron support (in-process)
 src/store.ts          321  SQLite: messages, schedules, groups, audit, skills
-src/hooks.ts          275  Security hooks (40+ Bash patterns, Read, Grep, Glob, Write/Edit)
-channels/telegram.ts  274  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
+src/hooks.ts          275  Security hooks (60+ Bash deny patterns, Read, Grep, Glob, Write/Edit)
+channels/telegram.ts  277  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
 src/cron.ts           234  Cron expression parser + cronToHuman (standard 5-field format)
 src/types.ts          182  Type definitions, shared constants, validation
 src/voice.ts          129  Whisper STT + Edge TTS
@@ -155,7 +155,7 @@ Responses are streamed as the agent works. If Claude produces intermediate text 
 
 The agent has persistent memory in `data/memory.md`. It's injected into every prompt automatically — the agent always sees it. When you say "remember that..." or "from now on...", the agent writes to memory. It also cleans up stale entries periodically via `rewrite_memory`.
 
-**Auto-extraction**: Every 5 conversations (configurable via `memoryExtractionInterval`), a background agent reviews recent messages and automatically saves new facts, preferences, and corrections to memory — without you explicitly asking. Inspired by Claude Code's memory extraction service.
+**Auto-extraction**: Every 5 conversations (configurable via `memoryExtractionInterval`), a background agent reviews recent messages and automatically saves new facts, preferences, and corrections to memory — without you explicitly asking. Runs silently in the background.
 
 Memory survives restarts and `/reset`. The `/reset` command only clears the Claude SDK session (conversation turns), not learned preferences.
 
@@ -241,7 +241,7 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 
 ### What's blocked
 
-**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Enhanced with validators ported from Claude Code: Unicode whitespace injection, control characters, IFS manipulation, process substitution, `/proc/environ` access, zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching.
+**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Enhanced validators: Unicode whitespace injection, control characters, IFS manipulation, process substitution, `/proc/environ` access, zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching.
 
 **System files**: `/etc/shadow`, `/etc/passwd`, `/etc/sudoers*`, `/etc/ssh/`, `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`, `/etc/fstab`, `/etc/sysctl.conf`, `/etc/apt/sources.list`, cakeagent's own service file. Agent can still configure nginx, mysql, cron, letsencrypt, systemd services, `sysctl.d/`, `sources.list.d/`, and any app it installs.
 

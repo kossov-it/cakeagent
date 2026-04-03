@@ -86,7 +86,7 @@ const BASH_DENY = [
   />\s*\S*\/data\/skills\//,          // redirect to skills directory
   /\bnpm\s+run\s+build\b/,           // block recompiling (only /update should build)
 
-  // Enhanced validators ported from Claude Code's bashSecurity.ts
+  // Enhanced validators — Unicode, control chars, process substitution, etc.
   /[\u00A0\u2000-\u200A\u2028\u2029\u202F\u205F\u3000]/, // unicode whitespace — invisible command separators
   /[\x00-\x08\x0B\x0C\x0E-\x1F]/,                       // control characters — parser confusion
   /\bIFS\s*=/,                                            // IFS injection — changes field separator

@@ -18,7 +18,7 @@ src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
 src/tools.ts        — In-process MCP server: 19 tools with cron support (createSdkMcpServer)
 src/cron.ts         — 5-field cron parser + cronToHuman()
 src/systemTasks.ts  — System tasks: morning check-in + dream/consolidation (ensureSystemTasks)
-src/hooks.ts        — Security hooks: 5 PreToolUse matchers (40+ bash patterns) + SubagentStart + PreCompact
+src/hooks.ts        — Security hooks: 5 PreToolUse matchers (60+ bash deny patterns) + SubagentStart + PreCompact
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/config.ts       — .env loading
@@ -57,7 +57,7 @@ npx tsc --noEmit     # Type-check only
 - Dedicated `cakeagent` system user with nologin shell
 - systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
 - Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh` (agent told it only has apt)
-- 6 PreToolUse hooks: Bash (40+ deny patterns incl. Claude Code validators + command normalization), Read, Grep, Glob, Write/Edit
+- 5 PreToolUse hooks: Bash (60+ deny patterns + command normalization), Read, Grep, Glob, Write/Edit
 - PreCompact hook archives conversations on context compaction
 - Bash commands normalized (quotes stripped) before deny-pattern matching
 - Settings validated: model, thinkingLevel, voiceTtsVoice checked against allowed values
