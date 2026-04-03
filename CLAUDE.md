@@ -13,10 +13,12 @@ Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to
 
 ## Directory Layout
 ```
-src/index.ts        — Orchestrator: poll loop, routing, debounce, scheduler, shutdown
+src/index.ts        — Orchestrator: poll loop, routing, debounce, cron scheduler, memory extraction, shutdown
 src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
-src/tools.ts        — In-process MCP server: 19 tools (createSdkMcpServer)
-src/hooks.ts        — Security hooks: 5 PreToolUse matchers + SubagentStart auditor + PreCompact archiver
+src/tools.ts        — In-process MCP server: 19 tools with cron support (createSdkMcpServer)
+src/cron.ts         — 5-field cron parser + cronToHuman() (ported from Claude Code KAIROS)
+src/systemTasks.ts  — System tasks: morning check-in + dream/consolidation (ensureSystemTasks)
+src/hooks.ts        — Security hooks: 5 PreToolUse matchers (40+ bash patterns) + SubagentStart + PreCompact
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/config.ts       — .env loading
@@ -45,12 +47,17 @@ npx tsc --noEmit     # Type-check only
 - CLAUDE.md in `groups/*/` is read-only for the agent — memory goes to `data/memory.md`
 - Sequential processing — one agent invocation at a time
 - Settings hot-reloaded from `data/settings.json` per invocation
+- Cron scheduling via `src/cron.ts` (ported from Claude Code KAIROS) — 5-field cron expressions
+- System tasks (morning check-in, dream) created on first boot via `src/systemTasks.ts`
+- Auto memory extraction runs every N conversations — silent background agent call
+- Missed scheduled tasks recovered on startup (one-shot fire, recurring advance)
+- Task queue prevents dropped tasks when agent is busy
 
 ## Security
 - Dedicated `cakeagent` system user with nologin shell
 - systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
 - Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh` (agent told it only has apt)
-- 6 PreToolUse hooks: Bash (deny patterns + command normalization), Read, Grep, Glob, Write/Edit
+- 6 PreToolUse hooks: Bash (40+ deny patterns incl. Claude Code validators + command normalization), Read, Grep, Glob, Write/Edit
 - PreCompact hook archives conversations on context compaction
 - Bash commands normalized (quotes stripped) before deny-pattern matching
 - Settings validated: model, thinkingLevel, voiceTtsVoice checked against allowed values

@@ -95,6 +95,9 @@ function buildSettingsKeyboard(settings: CakeSettings): any {
         btn(mark(settings.voiceReceive, 'Voice In'), 'voiceReceive:toggle'),
         btn(mark(settings.voiceSend, 'Voice Out'), 'voiceSend:toggle'),
       ],
+      [
+        btn(mark(!!settings.morningCheckinCron, 'Morning Brief'), 'morningCheckin:toggle'),
+      ],
     ],
   };
 }

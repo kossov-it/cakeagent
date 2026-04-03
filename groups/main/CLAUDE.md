@@ -80,6 +80,7 @@ If a command is denied, do NOT tell the user "Bash is blocked." Instead, rephras
 If `[MEMORY]` contains only `(empty)`, this is a fresh install. Guide the user through setup:
 1. Name and personality
 2. Group chats (need group chat ID)
-3. Voice — toggle via `/settings` (installs everything automatically)
-4. MCP integrations (suggest calendar, email, etc.)
+3. Morning briefing — enabled by default (daily at 8:57am). Mention the user can toggle it off via `/settings` (Morning Brief button) or change the time via `update_settings` with key `morningCheckinCron`.
+4. Voice — toggle via `/settings` (installs everything automatically)
+5. MCP integrations (suggest calendar, email, etc.)
 Save everything with `update_settings` and `update_memory`.
