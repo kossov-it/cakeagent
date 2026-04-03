@@ -17,19 +17,6 @@ CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, fil
 
 Runs as a single Node.js process under a dedicated system user. No containers, no web UI, no open ports.
 
-### Get started
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/kossov-it/cakeagent/main/install.sh | sudo bash
-```
-
-The script creates a `cakeagent` system user, installs everything to `/opt/cakeagent`, asks for your Telegram bot token and Claude credentials, and starts the service. Once running, send your bot a message — it walks you through the rest (name, personality, voice, integrations).
-
-To uninstall completely (user, service, data, everything):
-```bash
-sudo bash /opt/cakeagent/setup.sh uninstall
-```
-
 ---
 
 ## Why this exists
@@ -43,7 +30,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 | **Source code** | ~2,900 LOC, 11 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
-| **Telegram** | 274 LOC raw `fetch()` | Framework + adapter |
+| **Telegram** | 277 LOC raw `fetch()` | Framework + adapter |
 | **Integrations** | MCP + skills.sh | Custom plugin marketplace |
 | **Security** | 5-layer defense, 60+ deny patterns, every tool call audited | Varies — some have critical RCEs |
 | **CVEs** | 0 | Multiple critical RCEs |
@@ -54,11 +41,21 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 
 Linux server with Node.js 18+ required.
 
+**Quick install:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kossov-it/cakeagent/main/install.sh | sudo bash
+```
+
+**Or manually:**
+
 ```bash
 git clone https://github.com/kossov-it/cakeagent.git
 cd cakeagent
 sudo bash setup.sh
 ```
+
+The setup script creates a `cakeagent` system user, installs everything to `/opt/cakeagent`, asks for your Telegram bot token and Claude credentials, and starts the service. Once running, send your bot a message — it walks you through the rest (name, personality, voice, integrations).
 
 The setup script:
 
@@ -100,8 +97,9 @@ Removes the systemd service, the `cakeagent` user, the sudoers entry, and `/opt/
        │                     │                    │
 ┌──────┴──────┐       ┌──────┴──────┐      ┌──────┴──────────┐
 │   SQLite    │       │    Voice    │      │ Security Hooks  │
-│ (store.ts)  │       │  STT / TTS  │      │  (6 PreToolUse  │
-└─────────────┘       └─────────────┘      │   + PreCompact) │
+│ (store.ts)  │       │  STT / TTS  │      │  (5 PreToolUse  │
+└─────────────┘       └─────────────┘      │  + SubagentStart│
+                                           │   + PreCompact) │
                                            └──────┬──────────┘
        ┌──────────────────────────────────────────┴┐
        │              Tool Layer                   │
@@ -135,31 +133,21 @@ src/systemTasks.ts     97  System tasks: morning check-in + dream/consolidation
 src/config.ts          48  .env parser
 ```
 
+---
+
+## Features
+
 ### First run
 
-On your first message, CakeAgent detects empty memory and starts an onboarding conversation:
-
-1. Asks your name and preferred language
-2. Asks about personality (casual, formal, etc.)
-3. Offers to set up group chats
-4. Offers to enable voice (installs dependencies if you say yes)
-5. Suggests MCP integrations (calendar, email, etc.)
-
-Everything is saved to `settings.json` and `memory.md`. The agent remembers your preferences across restarts and session resets.
+On your first message, CakeAgent detects empty memory and starts an onboarding conversation — asks your name, language, personality, and suggests integrations. Everything is saved to `settings.json` and `memory.md`.
 
 ### Streaming
 
-Responses are streamed as the agent works. If Claude produces intermediate text (thinking out loud, progress updates), you see it immediately in Telegram instead of waiting for the full response. The final result is only sent if it wasn't already streamed.
+Responses are streamed as the agent works. Intermediate text (thinking, progress) appears immediately in Telegram instead of waiting for the full response.
 
-### Memory
+### Memory and autonomous behavior
 
-The agent has persistent memory in `data/memory.md`. It's injected into every prompt automatically — the agent always sees it. When you say "remember that..." or "from now on...", the agent writes to memory. It also cleans up stale entries periodically via `rewrite_memory`.
-
-**Auto-extraction**: Every 5 conversations (configurable via `memoryExtractionInterval`), a background agent reviews recent messages and automatically saves new facts, preferences, and corrections to memory — without you explicitly asking. Runs silently in the background.
-
-Memory survives restarts and `/reset`. The `/reset` command only clears the Claude SDK session (conversation turns), not learned preferences.
-
-### Autonomous behavior
+The agent has persistent memory in `data/memory.md`, injected into every prompt automatically. When you say "remember that..." or "from now on...", the agent writes to memory. Memory survives restarts and `/reset`.
 
 Three system tasks run automatically (configurable via settings, disable by setting cron to empty string):
 
@@ -167,9 +155,18 @@ Three system tasks run automatically (configurable via settings, disable by sett
 |------|-----------------|-------------|
 | **Morning check-in** | 8:57am daily | Reviews memory and scheduled tasks, sends a brief daily summary |
 | **Dream** | 3:23am daily | Consolidates memory — removes outdated entries, merges duplicates, fixes contradictions |
-| **Memory extraction** | Every 5 conversations | Reviews recent messages, saves new facts/preferences to memory |
+| **Memory extraction** | Every 5 conversations | Reviews recent messages, saves new facts/preferences to memory silently |
 
-Scheduling uses standard 5-field cron expressions (standard 5-field format). Missed tasks are recovered on restart — one-shot tasks fire, recurring tasks silently advance.
+Scheduling uses standard 5-field cron expressions (`minute hour day month weekday`). Missed tasks are recovered on restart — one-shot tasks fire, recurring tasks silently advance.
+
+### Voice
+
+Two separate toggles in `/settings` — **Voice In** (speech-to-text) and **Voice Out** (text-to-speech). Dependencies are installed automatically on first enable.
+
+| | Provider | Runs where |
+|---|---|---|
+| **Speech-to-text** | whisper.cpp | Local (audio never leaves the server) |
+| **Text-to-speech** | Edge TTS | Microsoft (free, no API key, no account) |
 
 ---
 
@@ -185,13 +182,9 @@ You:       "Yes"
 CakeAgent:  Installed. Available now.
 ```
 
-### MCP servers — runtime tools
+**MCP servers** — The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io) for tool servers. Installed servers go into `.mcp.json`, load automatically on the next message, and get their own `/command` in the Telegram menu.
 
-The agent searches the [official MCP Registry](https://registry.modelcontextprotocol.io) for tool servers. Installed servers go into `.mcp.json`, load automatically on the next message, and get their own `/command` in the Telegram menu.
-
-### Skills — knowledge packs from [skills.sh](https://skills.sh)
-
-Skills inject documentation and CLI knowledge directly into the agent's prompt. The agent then uses standard tools (Bash, pip, npm) to interact with the service. Used when no MCP server exists for a service. Browse available skills at [skills.sh](https://skills.sh) or manage them with `/skills` in Telegram.
+**Skills** — Knowledge packs from [skills.sh](https://skills.sh) inject documentation and CLI knowledge directly into the agent's prompt. Used when no MCP server exists for a service.
 
 ### Built-in tools
 
@@ -208,48 +201,21 @@ Skills inject documentation and CLI knowledge directly into the agent's prompt. 
 
 ---
 
-## Voice
-
-Two separate toggles in `/settings` — **Voice In** (speech-to-text) and **Voice Out** (text-to-speech). CakeAgent installs all dependencies automatically on first enable.
-
-| | Provider | Runs where | Install |
-|---|---|---|---|
-| **Speech-to-text** | whisper.cpp | Local | ffmpeg, cmake, whisper model, compiles whisper-cli |
-| **Text-to-speech** | Edge TTS | Microsoft (free, no API key) | python3-pip, edge-tts |
-
-STT is fully local — your audio never leaves the server. TTS uses Microsoft's Edge speech service (free, no key required, no account needed).
-
----
-
 ## Security
 
 CakeAgent gives Claude real system access — it installs packages, manages services, writes files, runs bash, and adds integrations. Five independent layers ensure this works without making the server a target.
-
-### Defense layers
 
 | Layer | What it does |
 |-------|-------------|
 | **OS sandbox** | Dedicated `cakeagent` user (nologin shell), systemd `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true` |
 | **Sudoers** | Passwordless sudo limited to `apt-get`, `apt`, `dpkg`, `systemctl`, and `setup.sh` only |
-| **PreToolUse hooks** | Every Bash, Read, Grep, Glob, Write, and Edit call validated before execution |
+| **PreToolUse hooks** | 5 hooks validate every Bash, Read, Grep, Glob, Write, and Edit call before execution. 60+ Bash deny patterns cover shell injection, reverse shells, inline execution, destructive ops, secret access, critical system files, firewall mutations, source code writes, Unicode whitespace injection, control characters, IFS manipulation, process substitution, and zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching. |
 | **Agent controls** | `acceptEdits` permission mode, `maxTurns: 25`, sender allowlist, rate limiting |
 | **Runtime checks** | Prompt injection detection, memory/skill content sanitization, startup permission auto-fix (`.env`, `data/`, `.mcp.json`, `credentials/`) |
 
-### What's allowed
+Additional hooks: **SubagentStart** logs all subagent launches to audit. **PreCompact** archives conversations on context compaction.
 
-Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critical services blocked), read/write data files, run validated bash commands, add MCP servers and skills, download files without sudo.
-
-### What's blocked
-
-**Bash**: shell injection (subshell exfiltration, backticks), inline execution (`bash -c`, `node -e`, `python -c`, etc.), reverse shells, download-and-execute, destructive `rm`, environment variable dumps (`env`, `printenv`), user/password management, `systemctl mask`, critical service mutations (sshd, cakeagent, networking), source code writes, `npm run build`. Enhanced validators: Unicode whitespace injection, control characters, IFS manipulation, process substitution, `/proc/environ` access, zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching.
-
-**System files**: `/etc/shadow`, `/etc/passwd`, `/etc/sudoers*`, `/etc/ssh/`, `/etc/hosts`, `/etc/resolv.conf`, `/etc/hostname`, `/etc/fstab`, `/etc/sysctl.conf`, `/etc/apt/sources.list`, cakeagent's own service file. Agent can still configure nginx, mysql, cron, letsencrypt, systemd services, `sysctl.d/`, `sources.list.d/`, and any app it installs.
-
-**Firewall**: `nft flush`, `nft delete table`, `iptables -F/-X/-Z`, `iptables -P ACCEPT` blocked. `systemctl stop/disable` on firewall services blocked. SSH port 22 protected. Adding/deleting rules and reloading allowed.
-
-**Files**: read `.env`/`.ssh`/credentials/`.pem`/`/etc/shadow` (Read + Grep guard), enumerate `.ssh`/credentials (Glob guard), write to source code/CLAUDE.md/`.env`/`package.json`/`tsconfig.json`/skill index (Write/Edit guard).
-
-**Audit**: every tool call logged to SQLite `audit_log` table. Injection attempts logged with sender and content.
+Every tool call is logged to the SQLite `audit_log` table. Injection attempts are logged with sender and content.
 
 ---
 
@@ -264,10 +230,6 @@ Install packages (`apt`, `pip`, `npm`), manage services (`systemctl` — critica
 | `/update` | Pull latest code, rebuild, restart |
 | `/restart` | Restart without updating |
 | `/help` | List commands |
-
-`/reset` clears the conversation session but keeps memory and settings. `/update` clears all sessions (context is stale after code changes). `/restart` preserves everything. Memory survives all operations.
-
-### CLI
 
 ```bash
 sudo bash /opt/cakeagent/setup.sh update    # Same as /update

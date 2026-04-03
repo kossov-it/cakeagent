@@ -58,6 +58,7 @@ npx tsc --noEmit     # Type-check only
 - systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
 - Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh` (agent told it only has apt)
 - 5 PreToolUse hooks: Bash (60+ deny patterns + command normalization), Read, Grep, Glob, Write/Edit
+- SubagentStart hook logs all subagent launches to audit_log
 - PreCompact hook archives conversations on context compaction
 - Bash commands normalized (quotes stripped) before deny-pattern matching
 - Settings validated: model, thinkingLevel, voiceTtsVoice checked against allowed values
