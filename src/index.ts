@@ -9,7 +9,7 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, chmodSync
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask } from './types.js';
-import { VALID_MODELS, INJECTION_PATTERNS } from './types.js';
+import { VALID_MODELS, INJECTION_PATTERNS, sanitizeMemory } from './types.js';
 import { parseCronExpression, computeNextCronRun } from './cron.js';
 import { ensureSystemTasks } from './systemTasks.js';
 
@@ -393,7 +393,7 @@ function scheduleAgentRun(chatId: string, groupFolder: string, lastProcessed: Ma
 
 async function extractMemory(chatId: string, groupFolder: string, currentSettings: CakeSettings): Promise<void> {
   try {
-    const memory = existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '';
+    const memory = sanitizeMemory(existsSync(memPath) ? readFileSync(memPath, 'utf-8').trim() : '');
     const recent = store.getMessagesSince(chatId, Date.now() - 60 * 60_000, 20);
     if (recent.length === 0) return;
 
@@ -458,11 +458,15 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
       console.warn(`[memory] memory.md is ${memory.length} bytes (max ${store.MAX_MEMORY_SIZE}) — truncating`);
       memory = memory.slice(0, store.MAX_MEMORY_SIZE);
     }
-    const skills = store.loadAllSkills();
+    // Sanitize on READ as well as on write — protects against host-side edits
+    // (user shell, backup restores) that could re-introduce injected content.
+    memory = sanitizeMemory(memory);
+    const skills = store.loadSkillSummaries();
     const prompt = `[MEMORY]\n${memory || '(empty)'}\n[/MEMORY]${skills ? `\n[SKILLS]\n${skills}\n[/SKILLS]` : ''}${injectionWarning}\n\n${messagesXml}`;
 
     const sessionId = store.getSession(groupFolder) ?? undefined;
     state.currentGroupFolder = groupFolder;
+    state.currentChatId = chatId;
     let lastSentText = '';
 
     const { sessionId: newSessionId, result } = await runAgent(
@@ -516,6 +520,18 @@ async function processChat(chatId: string, groupFolder: string, lastProcessed: M
 
     refreshBotCommands();
 
+    // PreCompact signalled that the SDK discarded messages — extract facts from
+    // what's left in the DB before the memory-extraction interval next fires,
+    // so nothing useful is silently lost across a compaction boundary.
+    if (state.pendingMemoryExtraction) {
+      const sig = state.pendingMemoryExtraction;
+      state.pendingMemoryExtraction = undefined;
+      if (currentSettings.memoryExtractionEnabled) {
+        console.log('[extraction] Running PreCompact-triggered extraction');
+        await extractMemory(sig.chatId, sig.groupFolder, currentSettings);
+      }
+    }
+
     // Auto memory extraction — every N turns, extract new facts from conversation
     if (currentSettings.memoryExtractionEnabled) {
       const turnCount = Number(store.getKv(`extraction:turns:${groupFolder}`) ?? '0') + 1;
@@ -553,6 +569,7 @@ async function executeScheduledTask(task: ScheduledTask): Promise<void> {
   try {
     agentBusy = true;
     state.currentGroupFolder = task.groupFolder;
+    state.currentChatId = task.chatId;
     const prompt = `[SCHEDULED TASK]\n\n${task.task}`;
     const sessionId = task.contextMode === 'group' ? (store.getSession(task.groupFolder) ?? undefined) : undefined;
     const currentSettings = store.loadSettings();

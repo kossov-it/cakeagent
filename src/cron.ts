@@ -73,13 +73,55 @@ function expandField(field: string, range: FieldRange): number[] | null {
   return Array.from(out).sort((a, b) => a - b);
 }
 
+// Shortcut aliases accepted in place of a full 5-field expression.
+// Matches Vixie-cron conventions except @reboot (we're not a system cron).
+const NICKNAMES: Record<string, string> = {
+  '@yearly':   '0 0 1 1 *',
+  '@annually': '0 0 1 1 *',
+  '@monthly':  '0 0 1 * *',
+  '@weekly':   '0 0 * * 0',
+  '@daily':    '0 0 * * *',
+  '@midnight': '0 0 * * *',
+  '@hourly':   '0 * * * *',
+};
+
+// Name-to-number for month and day-of-week fields. Case-insensitive.
+// Only 3-letter abbreviations are recognised — full names would conflict with
+// the lexer splitting on whitespace.
+const MONTH_NAMES: Record<string, string> = {
+  jan: '1', feb: '2', mar: '3', apr: '4', may: '5', jun: '6',
+  jul: '7', aug: '8', sep: '9', oct: '10', nov: '11', dec: '12',
+};
+const DOW_NAMES: Record<string, string> = {
+  sun: '0', mon: '1', tue: '2', wed: '3', thu: '4', fri: '5', sat: '6',
+};
+
+function replaceNames(field: string, names: Record<string, string>): string {
+  // Replace whole-word name tokens; numbers and operators pass through.
+  return field.replace(/[a-zA-Z]+/g, (m) => {
+    const v = names[m.toLowerCase()];
+    return v ?? m; // unknown names are left in place so the numeric expander
+                   // rejects them as invalid.
+  });
+}
+
 /**
  * Parse a 5-field cron expression into expanded number arrays.
+ * Also accepts the common @-nicknames (@daily, @hourly, @weekly, etc.) and
+ * month/weekday name aliases (MON, JAN, …).
  * Returns null if invalid or unsupported syntax.
  */
 export function parseCronExpression(expr: string): CronFields | null {
-  const parts = expr.trim().split(/\s+/);
+  const trimmed = expr.trim();
+  const nick = NICKNAMES[trimmed.toLowerCase()];
+  const effective = nick ?? trimmed;
+
+  const parts = effective.split(/\s+/);
   if (parts.length !== 5) return null;
+
+  // Apply name aliases to month (index 3) and day-of-week (index 4) fields.
+  parts[3] = replaceNames(parts[3]!, MONTH_NAMES);
+  parts[4] = replaceNames(parts[4]!, DOW_NAMES);
 
   const expanded: number[][] = [];
   for (let i = 0; i < 5; i++) {

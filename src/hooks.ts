@@ -1,12 +1,28 @@
 import type { HookInput } from '@anthropic-ai/claude-agent-sdk';
 import type { SharedState } from './types.js';
-import { logAudit } from './store.js';
-import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { logAudit, getMessagesSince } from './store.js';
+import { mkdirSync, writeFileSync, realpathSync, existsSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 
 // Normalize command for pattern matching — strip quotes to prevent bypass
-function normalizeCommand(cmd: string): string {
+export function normalizeCommand(cmd: string): string {
   return cmd.replace(/["'\\]/g, '');
+}
+
+/** Test helper: returns the first BASH_DENY pattern matching `cmd`, or null. */
+export function findBashDeny(cmd: string): RegExp | null {
+  const normalized = normalizeCommand(cmd);
+  return BASH_DENY.find(p => p.test(normalized)) ?? null;
+}
+
+/** Test helper: returns the first SENSITIVE_PATHS pattern matching `p`, or null. */
+export function findSensitivePath(p: string): RegExp | null {
+  return SENSITIVE_PATHS.find(r => r.test(p)) ?? null;
+}
+
+/** Test helper: returns the first PROTECTED_PATHS pattern matching `p`, or null. */
+export function findProtectedPath(p: string): RegExp | null {
+  return PROTECTED_PATHS.find(r => r.test(p)) ?? null;
 }
 
 // Deny patterns for Bash commands — defense-in-depth layer
@@ -114,10 +130,44 @@ const PROTECTED_PATHS = [
   /\/channels\//,
   /\/dist\//,
   /package\.json$/,
+  /package-lock\.json$/,
   /tsconfig\.json$/,
   /id_rsa/,
   /skills\/index\.json$/,
+  /\/data\/skills\/.+\.md$/,   // skills must be managed via install_skill/remove_skill
+  /\.mcp\.json$/,              // MCP servers must be managed via install_tool/remove_tool
+  /cakeagent\.service$/,       // systemd unit
+  /setup\.sh$/,                // provisioning script
 ];
+
+// Resolve a user-supplied path through symlinks and compare to the protected list.
+// Returns the matching pattern if blocked, null otherwise. Used as a second layer
+// after the cheap regex check so symlinked bypasses (e.g. groups/x -> /etc) are caught.
+function resolvedPathBlocked(filePath: string, patterns: RegExp[]): RegExp | null {
+  if (!filePath) return null;
+  // Match against the raw path first (fast, covers non-existent targets of Write)
+  const rawHit = patterns.find(p => p.test(filePath));
+  if (rawHit) return rawHit;
+  // For existing paths, also test the canonical path (defeats symlink traversal).
+  try {
+    if (existsSync(filePath)) {
+      const real = realpathSync(filePath);
+      const hit = patterns.find(p => p.test(real));
+      if (hit) return hit;
+    } else {
+      // Target doesn't exist yet — canonicalise the parent to catch symlinked parents.
+      const absolute = resolve(filePath);
+      const parent = absolute.split(sep).slice(0, -1).join(sep) || sep;
+      if (existsSync(parent)) {
+        const realParent = realpathSync(parent);
+        const realFull = join(realParent, absolute.split(sep).pop() ?? '');
+        const hit = patterns.find(p => p.test(realFull));
+        if (hit) return hit;
+      }
+    }
+  } catch { /* realpath can fail on broken symlinks — fall through */ }
+  return null;
+}
 
 export function createHooks(state: SharedState, groupsDir = './groups') {
   return {
@@ -152,7 +202,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
         matcher: '^Read$',
         hooks: [async (input: HookInput) => {
           const filePath: string = ('tool_input' in input ? (input.tool_input as { file_path?: string })?.file_path : '') ?? '';
-          const blocked = SENSITIVE_PATHS.find(p => p.test(filePath));
+          const blocked = resolvedPathBlocked(filePath, SENSITIVE_PATHS);
           if (blocked) {
             logAudit('read_denied', filePath);
             return {
@@ -175,7 +225,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
         matcher: '^Grep$',
         hooks: [async (input: HookInput) => {
           const searchPath: string = ('tool_input' in input ? (input.tool_input as { path?: string })?.path : '') ?? '';
-          const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
+          const blocked = resolvedPathBlocked(searchPath, SENSITIVE_PATHS);
           if (blocked) {
             logAudit('grep_denied', searchPath);
             return {
@@ -198,7 +248,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
         matcher: '^Glob$',
         hooks: [async (input: HookInput) => {
           const searchPath: string = ('tool_input' in input ? (input.tool_input as { path?: string })?.path : '') ?? '';
-          const blocked = SENSITIVE_PATHS.find(p => p.test(searchPath));
+          const blocked = resolvedPathBlocked(searchPath, SENSITIVE_PATHS);
           if (blocked) {
             logAudit('glob_denied', searchPath);
             return {
@@ -221,7 +271,7 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
         matcher: '^(Write|Edit)$',
         hooks: [async (input: HookInput) => {
           const filePath: string = ('tool_input' in input ? (input.tool_input as { file_path?: string })?.file_path : '') ?? '';
-          const blocked = PROTECTED_PATHS.find(p => p.test(filePath));
+          const blocked = resolvedPathBlocked(filePath, PROTECTED_PATHS);
           if (blocked) {
             logAudit('file_denied', filePath);
             return {
@@ -259,14 +309,32 @@ export function createHooks(state: SharedState, groupsDir = './groups') {
           try {
             const sessionId = input.session_id ?? 'unknown';
             const groupFolder = state.currentGroupFolder ?? 'main';
+            const chatId = state.currentChatId ?? '';
             const archiveDir = join(groupsDir, groupFolder, 'conversations');
             mkdirSync(archiveDir, { recursive: true });
             const date = new Date().toISOString().slice(0, 10);
             const filename = `${date}-${sessionId.slice(0, 8)}.md`;
-            const note = `# Conversation archived ${new Date().toISOString()}\nSession: ${sessionId}\n\n(Full transcript was compacted by the SDK)\n`;
-            writeFileSync(join(archiveDir, filename), note);
-            logAudit('precompact', `Archived session ${sessionId}`);
-          } catch { /* best effort */ }
+            const archivePath = join(archiveDir, filename);
+
+            // Dump actual recent transcript from SQLite so the archive is searchable,
+            // not a placeholder. Bounded at 500 messages to avoid runaway files.
+            let body = '';
+            if (chatId) {
+              const recent = getMessagesSince(chatId, 0, 500);
+              body = [...recent].reverse().map(m => {
+                const iso = new Date(m.timestamp).toISOString();
+                return `### ${iso} — ${m.sender_name}\n${(m.content ?? '').slice(0, 4000)}`;
+              }).join('\n\n');
+            }
+            const header = `# Conversation archived ${new Date().toISOString()}\nSession: ${sessionId}\nGroup: ${groupFolder}\nChat: ${chatId || '(unknown)'}\n\n`;
+            writeFileSync(archivePath, header + (body || '_(no transcript available — chat unknown)_\n'));
+
+            // Signal main loop to extract memory from the messages about to be lost.
+            state.pendingMemoryExtraction = { groupFolder, chatId };
+            logAudit('precompact', `Archived session ${sessionId} (${body.length} chars)`);
+          } catch (err) {
+            logAudit('precompact_error', (err as Error).message.slice(0, 200));
+          }
           return {};
         }],
       },
