@@ -141,12 +141,43 @@ export const INJECTION_PATTERNS = [
   /you\s+are\s+now\s+(a|an)\s+/i,
   /system\s*:\s*(prompt|override|command)/i,
   /\[System\s*Message\]/i,
+  // Role/tag spoofing: "Assistant:" / "User:" line prefixes used to fake turn boundaries
+  /^\s*(assistant|user|system|tool|tool_use|tool_result)\s*:/im,
+  // XML/tag injection — fake SDK message wrappers in user content
+  /<\/?(system|tool_use|tool_result|function_calls|parameter|assistant|user)\b[^>]*>/i,
+  // ASCII-art / box-drawing runs used to smuggle instructions past scanners
+  /[\u2580-\u259F\u2500-\u257F█▓▒░]{6,}/,
+  // Common jailbreak framings
+  /\b(developer|debug|admin|root)\s+mode\s+(on|enabled|activated)/i,
+  /\boverride\s+(all\s+)?safety/i,
 ];
 
 export const CREDENTIAL_PATTERNS = [
   /(api[_-]?key|token|secret|password|authorization)\s*[=:]\s*\S{20,}/i,
   /\b(sk-ant-|sk-|ghp_|gho_|xoxb-|xoxp-|glpat-)[a-zA-Z0-9_-]{20,}/,
 ];
+
+// Shared sanitizer — strip lines matching known-bad patterns before storing or loading
+// user-influenced content (memory.md, skills, etc.).
+export function sanitizeMemory(content: string): string {
+  return content.split('\n').filter(line =>
+    !INJECTION_PATTERNS.some(p => p.test(line)) &&
+    !CREDENTIAL_PATTERNS.some(p => p.test(line))
+  ).join('\n');
+}
+
+// Redact known API-key prefixes from arbitrary strings before writing to
+// audit_log / stdout. Conservative: only replace the secret span, not the
+// surrounding context, so the log stays diagnostic.
+const SECRET_SUBSTRING_RE = /(sk-ant-[a-zA-Z0-9_-]{20,}|sk-[a-zA-Z0-9_-]{20,}|ghp_[a-zA-Z0-9_-]{20,}|gho_[a-zA-Z0-9_-]{20,}|glpat-[a-zA-Z0-9_-]{20,}|xox[bpoas]-[a-zA-Z0-9_-]{20,}|AKIA[0-9A-Z]{16}|AIza[0-9A-Za-z_-]{20,}|ya29\.[0-9A-Za-z_-]{20,})/g;
+const KV_SECRET_RE = /(api[_-]?key|token|secret|password|authorization|bearer)(\s*[=:]\s*)(\S{16,})/ig;
+
+export function redactSecrets(s: string): string {
+  if (!s) return s;
+  return s
+    .replace(SECRET_SUBSTRING_RE, '[REDACTED]')
+    .replace(KV_SECRET_RE, (_m, k, sep) => `${k}${sep}[REDACTED]`);
+}
 
 export const VALID_MODELS = new Set(['claude-haiku-4-5-20251001', 'claude-sonnet-4-6', 'claude-opus-4-6']);
 export const VALID_THINKING_LEVELS = new Set(['off', 'low', 'medium', 'high']);
@@ -170,6 +201,10 @@ export interface SharedState {
   pendingFiles: PendingFile[];
   pendingSchedules: ScheduleOp[];
   currentGroupFolder?: string;
+  currentChatId?: string;
+  // Signalled by the PreCompact hook so the main loop can extract facts from
+  // messages about to be lost. Processed once and cleared.
+  pendingMemoryExtraction?: { groupFolder: string; chatId: string };
 }
 
 // === Config ===

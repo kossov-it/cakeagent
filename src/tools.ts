@@ -4,17 +4,48 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync, renameS
 import { join, resolve } from 'node:path';
 import * as store from './store.js';
 import type { SharedState, CakeSettings } from './types.js';
-import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE, INJECTION_PATTERNS, CREDENTIAL_PATTERNS } from './types.js';
+import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, VALID_TTS_VOICE_RE, sanitizeMemory } from './types.js';
 import { parseCronExpression, computeNextCronRun, cronToHuman } from './cron.js';
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
 
-function sanitizeMemory(content: string): string {
-  return content.split('\n').filter(line =>
-    !INJECTION_PATTERNS.some(p => p.test(line)) &&
-    !CREDENTIAL_PATTERNS.some(p => p.test(line))
-  ).join('\n');
+// Reject URLs targeting private / loopback / link-local / cloud-metadata
+// endpoints so prompt-injected inputs can't turn our fetch() calls into an
+// SSRF vector against the host. Only HTTPS is permitted for outbound content.
+export function isSafeOutboundUrl(urlStr: string): { ok: true } | { ok: false; reason: string } {
+  let u: URL;
+  try { u = new URL(urlStr); } catch { return { ok: false, reason: 'invalid URL' }; }
+  if (u.protocol !== 'https:') return { ok: false, reason: 'only https:// is permitted' };
+  const host = u.hostname.toLowerCase();
+  // Reject bare IPs and internal hostnames.
+  const ipv4 = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+  if (ipv4) {
+    const [a, b] = host.split('.').map(n => parseInt(n, 10));
+    if (a === 10) return { ok: false, reason: 'private IPv4 (10/8)' };
+    if (a === 127) return { ok: false, reason: 'loopback IPv4' };
+    if (a === 169 && b === 254) return { ok: false, reason: 'link-local / cloud metadata' };
+    if (a === 172 && b !== undefined && b >= 16 && b <= 31) return { ok: false, reason: 'private IPv4 (172.16/12)' };
+    if (a === 192 && b === 168) return { ok: false, reason: 'private IPv4 (192.168/16)' };
+    if (a === 100 && b !== undefined && b >= 64 && b <= 127) return { ok: false, reason: 'CGNAT range' };
+    if (a === 0) return { ok: false, reason: 'reserved' };
+  }
+  if (host === 'localhost' || host === 'metadata.google.internal' || host.endsWith('.internal') || host.endsWith('.local')) {
+    return { ok: false, reason: 'internal hostname' };
+  }
+  if (host.includes(':')) return { ok: false, reason: 'IPv6 literal — not allowed' };
+  return { ok: true };
+}
+
+// Per-tool throttles. Keeps an agent stuck in a loop from blowing through
+// install_tool / schedule_task / install_skill. Keys are namespaced so they
+// don't collide with the per-sender message limiter.
+function throttle(toolKey: string, max: number, windowMs: number): { ok: boolean; reason?: string } {
+  if (!store.checkRateLimit(`tool:${toolKey}`, max, windowMs)) {
+    store.logAudit('tool_rate_limited', toolKey);
+    return { ok: false, reason: `Rate limit exceeded for ${toolKey} (${max} per ${Math.round(windowMs/1000)}s).` };
+  }
+  return { ok: true };
 }
 
 export function createTools(state: SharedState, dataDir: string, groupsDir: string) {
@@ -62,6 +93,8 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             .describe('group = run with chat history, isolated = fresh session'),
         },
         async (args) => {
+          const th = throttle('schedule_task', 30, 60_000);
+          if (!th.ok) return { content: [{ type: 'text' as const, text: th.reason! }] };
           let nextRun = args.nextRun ?? '';
           const recurring = args.recurring ?? (args.scheduleType !== 'once');
 
@@ -160,6 +193,8 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
         async (args) => {
           try {
             const url = `https://registry.modelcontextprotocol.io/v0.1/servers?search=${encodeURIComponent(args.query)}&limit=10`;
+            const safe = isSafeOutboundUrl(url);
+            if (!safe.ok) return { content: [{ type: 'text' as const, text: `Denied: ${safe.reason}` }] };
             const res = await fetch(url);
             if (!res.ok) return { content: [{ type: 'text' as const, text: `Registry returned ${res.status}` }] };
             const data = await res.json() as { servers?: Array<{ server?: { name?: string; description?: string; repository?: { url?: string } } }> };
@@ -186,6 +221,8 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           env: z.record(z.string(), z.string()).optional().describe('Environment variables for the server'),
         },
         async (toolArgs) => {
+          const th = throttle('install_tool', 5, 60_000);
+          if (!th.ok) return { content: [{ type: 'text' as const, text: th.reason! }] };
           if (!ALLOWED_COMMANDS.has(toolArgs.command)) {
             return { content: [{ type: 'text' as const, text: `Denied: command "${toolArgs.command}" not in allowed list: ${[...ALLOWED_COMMANDS].join(', ')}` }] };
           }
@@ -366,21 +403,45 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             return { content: [{ type: 'text' as const, text: 'Invalid characters in source identifier. Owner, repo, and skill name must be alphanumeric.' }] };
           }
 
+          const th = throttle('install_skill', 10, 60_000);
+          if (!th.ok) return { content: [{ type: 'text' as const, text: th.reason! }] };
+
           const index = store.loadSkillIndex();
           if (index[name]) {
             return { content: [{ type: 'text' as const, text: `Skill "${name}" is already installed. Remove it first with remove_skill.` }] };
           }
 
-          // Fetch SKILL.md from GitHub (try main, fall back to master)
+          // Fetch SKILL.md from GitHub, resolving the branch to a commit SHA so
+          // subsequent reads can be pinned. Try main then master.
           let content = '';
+          let resolvedSha: string | null = null;
+          let resolvedRef: string | null = null;
           for (const branch of ['main', 'master']) {
-            const url = `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${skill}/SKILL.md`;
+            const shaUrl = `https://api.github.com/repos/${owner}/${repo}/commits/${branch}`;
+            const safeSha = isSafeOutboundUrl(shaUrl);
+            if (!safeSha.ok) {
+              return { content: [{ type: 'text' as const, text: `Denied: ${safeSha.reason}` }] };
+            }
             try {
+              const shaRes = await fetch(shaUrl, { headers: { 'Accept': 'application/vnd.github+json' } });
+              if (!shaRes.ok) continue;
+              const shaJson = await shaRes.json() as { sha?: string };
+              if (!shaJson.sha || !/^[a-f0-9]{40}$/.test(shaJson.sha)) continue;
+              const url = `https://raw.githubusercontent.com/${owner}/${repo}/${shaJson.sha}/${skill}/SKILL.md`;
+              const safeUrl = isSafeOutboundUrl(url);
+              if (!safeUrl.ok) {
+                return { content: [{ type: 'text' as const, text: `Denied: ${safeUrl.reason}` }] };
+              }
               const res = await fetch(url);
-              if (res.ok) { content = await res.text(); break; }
-            } catch { /* try next */ }
+              if (res.ok) {
+                content = await res.text();
+                resolvedSha = shaJson.sha;
+                resolvedRef = branch;
+                break;
+              }
+            } catch { /* try next branch */ }
           }
-          if (!content) {
+          if (!content || !resolvedSha) {
             return { content: [{ type: 'text' as const, text: `Could not fetch SKILL.md from github.com/${owner}/${repo}/${skill}. Check the source identifier.` }] };
           }
 
@@ -394,24 +455,91 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
           const skillsDir = join(dataDir, 'skills');
           mkdirSync(skillsDir, { recursive: true });
           writeFileSync(join(skillsDir, `${name}.md`), sanitized);
-          index[name] = { owner, repo, skill, installedAt: new Date().toISOString().slice(0, 10) };
-          store.saveSkillIndex(index);
-          store.logAudit('skill_installed', `${name} from ${args.source}`);
 
-          return { content: [{ type: 'text' as const, text: `Installed skill "${name}". Read the skill content above to learn the setup steps and available commands. Install any required CLI tools via Bash, then follow the authentication instructions.` }] };
+          // First non-empty, non-heading line becomes the lazy-load summary.
+          const summary = sanitized.split('\n')
+            .map(l => l.trim())
+            .find(l => l && !l.startsWith('#')) ?? '';
+
+          index[name] = {
+            owner, repo, skill,
+            installedAt: new Date().toISOString().slice(0, 10),
+            sha: resolvedSha,
+            ref: resolvedRef ?? undefined,
+            summary: summary.slice(0, 200),
+          };
+          store.saveSkillIndex(index);
+          store.logAudit('skill_installed', `${name} from ${args.source} @ ${resolvedSha.slice(0, 10)}`);
+
+          return { content: [{ type: 'text' as const, text: `Installed skill "${name}" pinned at ${resolvedSha.slice(0, 10)}. Call read_skill("${name}") to read the full setup instructions.` }] };
         },
       ),
 
       tool(
         'list_skills',
-        'List all installed skills from skills.sh',
+        'List all installed skills from skills.sh with their pinned commit SHA',
         {},
         async () => {
           const index = store.loadSkillIndex();
           const names = Object.keys(index);
           if (names.length === 0) return { content: [{ type: 'text' as const, text: 'No skills installed. Browse https://skills.sh to find skills.' }] };
-          const list = names.map(n => `- ${n} (${index[n].owner}/${index[n].repo}, installed ${index[n].installedAt})`).join('\n');
+          const list = names.map(n => {
+            const m = index[n]!;
+            const pin = m.sha ? ` @ ${m.sha.slice(0, 10)}` : '';
+            return `- ${n} (${m.owner}/${m.repo}${pin}, installed ${m.installedAt})${m.summary ? `\n  ${m.summary}` : ''}`;
+          }).join('\n');
           return { content: [{ type: 'text' as const, text: list }] };
+        },
+      ),
+
+      tool(
+        'read_skill',
+        'Read the full body of an installed skill. Use this after seeing the lazy-loaded skill index in your prompt to load setup instructions for a specific integration.',
+        { name: z.string().describe('Skill name as shown in list_skills') },
+        async (args) => {
+          const body = store.readSkill(args.name);
+          if (body == null) return { content: [{ type: 'text' as const, text: `Skill "${args.name}" not found.` }] };
+          return { content: [{ type: 'text' as const, text: body }] };
+        },
+      ),
+
+      tool(
+        'search_messages',
+        'Full-text search across stored message history. Use for cross-session recall ("what did we discuss about X last month?").',
+        {
+          query: z.string().describe('Search query. Supports FTS5 phrase syntax; quotes are stripped.'),
+          chatId: z.string().optional().describe('Restrict to a specific chat'),
+          sinceDays: z.number().optional().describe('Only messages newer than N days'),
+          limit: z.number().optional().describe('Max results (default 20, max 200)'),
+        },
+        async (args) => {
+          const since = args.sinceDays ? Date.now() - args.sinceDays * 86_400_000 : 0;
+          const hits = store.searchMessages(args.query, { chatId: args.chatId, since, limit: args.limit });
+          if (hits.length === 0) return { content: [{ type: 'text' as const, text: 'No matches.' }] };
+          const list = hits.map(h => {
+            const when = new Date(h.timestamp).toISOString().slice(0, 16).replace('T', ' ');
+            return `[${when}] ${h.sender_name}: ${(h.content ?? '').slice(0, 300)}`;
+          }).join('\n');
+          return { content: [{ type: 'text' as const, text: `${hits.length} match(es)${store.hasFts() ? '' : ' (LIKE fallback — FTS5 unavailable)'}:\n${list}` }] };
+        },
+      ),
+
+      tool(
+        'list_audit_events',
+        'Review the audit log for security events (blocked commands, injections, tool installs, rate limits). Useful when the user asks what the agent has been blocked from doing, or to review recent activity.',
+        {
+          event: z.string().optional().describe('Filter by event name (e.g. "bash_denied", "injection_detected", "skill_installed")'),
+          sinceHours: z.number().optional().describe('Only events from the last N hours'),
+          limit: z.number().optional().describe('Max results (default 50, max 500)'),
+        },
+        async (args) => {
+          const since = args.sinceHours
+            ? new Date(Date.now() - args.sinceHours * 3_600_000).toISOString().replace('T', ' ').slice(0, 19)
+            : undefined;
+          const rows = store.listAuditEvents({ event: args.event, since, limit: args.limit });
+          if (rows.length === 0) return { content: [{ type: 'text' as const, text: 'No audit events match.' }] };
+          const lines = rows.map(r => `#${r.id} [${r.created_at}] ${r.event}: ${r.detail ?? ''}`);
+          return { content: [{ type: 'text' as const, text: lines.join('\n') }] };
         },
       ),
 

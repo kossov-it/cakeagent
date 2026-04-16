@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import type { IncomingMessage, RegisteredGroup, ScheduledTask, CakeSettings } from './types.js';
-import { DEFAULT_SETTINGS } from './types.js';
+import { DEFAULT_SETTINGS, redactSecrets } from './types.js';
 
 let db: Database.Database;
 let dataDir: string;
@@ -79,7 +79,53 @@ export function initDb(dir: string): void {
   for (const sql of migrations) {
     try { db.exec(sql); } catch { /* column already exists */ }
   }
+
+  // FTS5 virtual table for message search. Unindexed columns keep them queryable
+  // for filtering without tokenising. Triggers keep it in sync automatically.
+  // Wrapped in try/catch because FTS5 requires the SQLite build to include it —
+  // if unavailable, search_messages degrades to a LIKE query.
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+        content,
+        sender_name UNINDEXED,
+        chat_id UNINDEXED,
+        timestamp UNINDEXED,
+        message_id UNINDEXED,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+
+      CREATE TRIGGER IF NOT EXISTS messages_ai AFTER INSERT ON messages BEGIN
+        INSERT INTO messages_fts (content, sender_name, chat_id, timestamp, message_id)
+        VALUES (new.content, new.sender_name, new.chat_id, new.timestamp, new.id);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS messages_ad AFTER DELETE ON messages BEGIN
+        DELETE FROM messages_fts WHERE message_id = old.id;
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+        DELETE FROM messages_fts WHERE message_id = old.id;
+        INSERT INTO messages_fts (content, sender_name, chat_id, timestamp, message_id)
+        VALUES (new.content, new.sender_name, new.chat_id, new.timestamp, new.id);
+      END;
+    `);
+    ftsAvailable = true;
+    // Backfill FTS from existing messages on first run (idempotent via rebuild).
+    const ftsCount = db.prepare(`SELECT COUNT(*) as n FROM messages_fts`).get() as { n: number };
+    const msgCount = db.prepare(`SELECT COUNT(*) as n FROM messages`).get() as { n: number };
+    if (ftsCount.n === 0 && msgCount.n > 0) {
+      db.exec(`INSERT INTO messages_fts (content, sender_name, chat_id, timestamp, message_id)
+        SELECT content, sender_name, chat_id, timestamp, id FROM messages`);
+    }
+  } catch (err) {
+    console.warn('[store] FTS5 unavailable, search will use LIKE fallback:', (err as Error).message);
+    ftsAvailable = false;
+  }
 }
+
+let ftsAvailable = false;
+export function hasFts(): boolean { return ftsAvailable; }
 
 // --- Messages ---
 
@@ -104,6 +150,45 @@ export function getMessagesSince(chatId: string, since: number, limit = 50): Arr
     `SELECT sender_name, content, timestamp FROM messages
      WHERE chat_id = ? AND timestamp > ? ORDER BY timestamp DESC LIMIT ?`
   ).all(chatId, since, limit) as Array<{ sender_name: string; content: string; timestamp: number }>;
+}
+
+// Full-text search across stored messages. Uses FTS5 if available, falls back
+// to a simple LIKE scan. Returns most recent first.
+export function searchMessages(
+  query: string,
+  opts: { chatId?: string; since?: number; limit?: number } = {},
+): Array<{ sender_name: string; content: string; timestamp: number; chat_id: string }> {
+  const limit = Math.min(Math.max(1, opts.limit ?? 20), 200);
+  const since = opts.since ?? 0;
+
+  if (ftsAvailable) {
+    // FTS5 MATCH — sanitize to prevent MATCH syntax errors on arbitrary input.
+    // Wrap terms in quotes; collapse to phrase query for safety.
+    const safe = query.replace(/["']/g, ' ').trim();
+    if (!safe) return [];
+    const matchExpr = `"${safe}"`;
+    const where: string[] = [`messages_fts MATCH ?`];
+    const vals: unknown[] = [matchExpr];
+    if (opts.chatId) { where.push(`chat_id = ?`); vals.push(opts.chatId); }
+    if (since > 0) { where.push(`timestamp > ?`); vals.push(since); }
+    try {
+      return db.prepare(
+        `SELECT content, sender_name, chat_id, timestamp FROM messages_fts
+         WHERE ${where.join(' AND ')} ORDER BY timestamp DESC LIMIT ?`
+      ).all(...vals, limit) as Array<{ sender_name: string; content: string; timestamp: number; chat_id: string }>;
+    } catch {
+      // Fall through to LIKE on malformed queries.
+    }
+  }
+
+  const where: string[] = [`content LIKE ?`];
+  const vals: unknown[] = [`%${query.replace(/[%_\\]/g, '\\$&')}%`];
+  if (opts.chatId) { where.push(`chat_id = ?`); vals.push(opts.chatId); }
+  if (since > 0) { where.push(`timestamp > ?`); vals.push(since); }
+  return db.prepare(
+    `SELECT content, sender_name, chat_id, timestamp FROM messages
+     WHERE ${where.join(' AND ')} ESCAPE '\\' ORDER BY timestamp DESC LIMIT ?`
+  ).all(...vals, limit) as Array<{ sender_name: string; content: string; timestamp: number; chat_id: string }>;
 }
 
 // --- Groups ---
@@ -208,7 +293,23 @@ export function checkRateLimit(key: string, max: number, windowMs: number): bool
 // --- Audit ---
 
 export function logAudit(event: string, detail?: string): void {
-  db.prepare(`INSERT INTO audit_log (event, detail) VALUES (?, ?)`).run(event, detail ?? null);
+  // Always redact known secret substrings before persisting. Cheap and defence
+  // in depth — callers should still avoid logging credentials on purpose.
+  const safeDetail = detail != null ? redactSecrets(detail).slice(0, 2000) : null;
+  db.prepare(`INSERT INTO audit_log (event, detail) VALUES (?, ?)`).run(event, safeDetail);
+}
+
+export function listAuditEvents(opts: { event?: string; since?: string; limit?: number } = {}):
+  Array<{ id: number; event: string; detail: string | null; created_at: string }> {
+  const limit = Math.min(Math.max(1, opts.limit ?? 50), 500);
+  const where: string[] = [];
+  const vals: unknown[] = [];
+  if (opts.event) { where.push(`event = ?`); vals.push(opts.event); }
+  if (opts.since) { where.push(`created_at > ?`); vals.push(opts.since); }
+  const sql = `SELECT id, event, detail, created_at FROM audit_log
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY id DESC LIMIT ?`;
+  return db.prepare(sql).all(...vals, limit) as Array<{ id: number; event: string; detail: string | null; created_at: string }>;
 }
 
 // --- Settings ---
@@ -260,7 +361,19 @@ export function countActiveSchedules(): number {
 
 // --- Skills ---
 
-interface SkillMeta { owner: string; repo: string; skill: string; installedAt: string }
+// `sha` and `ref` pin the commit the skill body was fetched at, so the
+// content can't silently change under us between installs. `summary` is the
+// first non-empty line of the skill body, used for the lazy-loaded skill
+// index injected into every prompt.
+interface SkillMeta {
+  owner: string;
+  repo: string;
+  skill: string;
+  installedAt: string;
+  sha?: string;
+  ref?: string;
+  summary?: string;
+}
 
 export function loadSkillIndex(): Record<string, SkillMeta> {
   const path = join(dataDir, 'skills', 'index.json');
@@ -291,6 +404,30 @@ export function loadAllSkills(): string {
     }
   }
   return parts.join('\n\n---\n\n');
+}
+
+// Lazy-loaded skill index — returns only a one-line summary per skill so the
+// whole catalogue fits in a few hundred tokens. The agent calls `read_skill`
+// to fetch a full body on demand.
+export function loadSkillSummaries(): string {
+  const dir = join(dataDir, 'skills');
+  if (!existsSync(dir)) return '';
+  const index = loadSkillIndex();
+  const names = Object.keys(index);
+  if (names.length === 0) return '';
+  const lines = names.map(name => {
+    const meta = index[name]!;
+    const summary = meta.summary?.trim() || '(no description)';
+    return `- ${name} — ${summary.slice(0, 140)}`;
+  });
+  return `Installed skills (call read_skill(name) for full body):\n${lines.join('\n')}`;
+}
+
+export function readSkill(name: string): string | null {
+  if (/[./\\]/.test(name)) return null;
+  const mdPath = join(dataDir, 'skills', `${name}.md`);
+  if (!existsSync(mdPath)) return null;
+  return readFileSync(mdPath, 'utf-8');
 }
 
 // --- Key-Value ---
