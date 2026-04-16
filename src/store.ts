@@ -392,20 +392,6 @@ export function saveSkillIndex(index: Record<string, SkillMeta>): void {
   writeAtomic(join(dir, 'index.json'), JSON.stringify(index, null, 2));
 }
 
-export function loadAllSkills(): string {
-  const dir = join(dataDir, 'skills');
-  if (!existsSync(dir)) return '';
-  const index = loadSkillIndex();
-  const parts: string[] = [];
-  for (const name of Object.keys(index)) {
-    const mdPath = join(dir, `${name}.md`);
-    if (existsSync(mdPath)) {
-      parts.push(`### Skill: ${name}\n${readFileSync(mdPath, 'utf-8').trim()}`);
-    }
-  }
-  return parts.join('\n\n---\n\n');
-}
-
 // Lazy-loaded skill index — returns only a one-line summary per skill so the
 // whole catalogue fits in a few hundred tokens. The agent calls `read_skill`
 // to fetch a full body on demand.
