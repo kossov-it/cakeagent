@@ -9,6 +9,7 @@ import { parseCronExpression, computeNextCronRun, cronToHuman } from './cron.js'
 
 const MCP_JSON_PATH = resolve('.mcp.json');
 const ALLOWED_COMMANDS = new Set(['npx', 'node', 'python', 'python3', 'uvx', 'docker']);
+const DANGEROUS_ARG_PATTERNS = [/--eval\b/, /-e(\s|$)/, /-c(\s|$)/, /\$\(/, /`/, /\|\s*(ba)?sh\b/, /;\s*rm/];
 
 // Reject URLs targeting private / loopback / link-local / cloud-metadata
 // endpoints so prompt-injected inputs can't turn our fetch() calls into an
@@ -227,7 +228,6 @@ export function createTools(state: SharedState, dataDir: string, groupsDir: stri
             return { content: [{ type: 'text' as const, text: `Denied: command "${toolArgs.command}" not in allowed list: ${[...ALLOWED_COMMANDS].join(', ')}` }] };
           }
 
-          const DANGEROUS_ARG_PATTERNS = [/--eval\b/, /-e(\s|$)/, /-c(\s|$)/, /\$\(/, /`/, /\|\s*(ba)?sh\b/, /;\s*rm/];
           const joined = [toolArgs.command, ...toolArgs.args].join(' ');
           if (DANGEROUS_ARG_PATTERNS.some(p => p.test(joined))) {
             store.logAudit('tool_install_denied', `${toolArgs.name}: dangerous pattern in "${joined.slice(0, 200)}"`);

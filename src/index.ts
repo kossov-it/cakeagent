@@ -9,7 +9,7 @@ import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, chmodSync
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
 import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask } from './types.js';
-import { VALID_MODELS, INJECTION_PATTERNS, sanitizeMemory } from './types.js';
+import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, INJECTION_PATTERNS, sanitizeMemory } from './types.js';
 import { parseCronExpression, computeNextCronRun } from './cron.js';
 import { ensureSystemTasks } from './systemTasks.js';
 
@@ -151,13 +151,31 @@ const taskQueue: ScheduledTask[] = [];
 
 const startTime = Date.now();
 console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.telegramChatId}`);
-telegram.send(config.telegramChatId, 'Restarted.').catch(() => {});
+
+// Fresh install = empty memory, no skills, no registered groups. On first boot
+// we greet the user proactively so they don't need to guess what to say. On
+// subsequent boots we send a terse "Restarted." so they know the service came
+// back up (e.g. after /update or a crash).
+const memoryEmpty = !existsSync(memPath) || readFileSync(memPath, 'utf-8').trim() === '';
+const isFreshInstall = memoryEmpty
+  && Object.keys(store.loadSkillIndex()).length === 0
+  && store.getGroups().length === 0;
+
+const welcome = isFreshInstall
+  ? `🍰 *Welcome to ${settings.assistantName}*\n\n` +
+    `I'm your personal AI assistant. I'm ready — just talk to me.\n\n` +
+    `*First steps:*\n` +
+    `• Tell me your name and how you'd like me to address you\n` +
+    `• Mention anything I should remember (preferences, routines)\n` +
+    `• Ask me to connect a service ("connect Google Calendar") — I'll install it\n` +
+    `• Toggle voice, model, and thinking level via /settings\n\n` +
+    `Type /help for the command list. Morning briefs run daily at 8:57 unless you disable them.`
+  : 'Restarted.';
+telegram.send(config.telegramChatId, welcome).catch(() => {});
 
 checkVoiceDeps().then(({ missing }) => {
   if (missing.length) console.warn('[voice] Missing:', missing.join(', '));
 });
-
-const VALID_THINKING = new Set(['off', 'low', 'medium', 'high']);
 
 const DEBOUNCE_MS = 2000;
 const debounceTimers = new Map<string, NodeJS.Timeout>();
@@ -168,10 +186,10 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
 
   if (key === 'model' && VALID_MODELS.has(val)) {
     settings.model = val;
-  } else if (key === 'thinking' && VALID_THINKING.has(val)) {
+  } else if (key === 'thinking' && VALID_THINKING_LEVELS.has(val)) {
     settings.thinkingLevel = val;
   } else if (key === 'morningCheckin') {
-    settings.morningCheckinCron = settings.morningCheckinCron ? '' : '57 8 * * *';
+    settings.morningCheckinCron = settings.morningCheckinCron ? '' : DEFAULT_SETTINGS.morningCheckinCron;
     store.saveSettings(settings);
     ensureSystemTasks(config.telegramChatId, config.dataDir);
     return settings;

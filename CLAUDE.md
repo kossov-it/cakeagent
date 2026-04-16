@@ -15,10 +15,10 @@ Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to
 ```
 src/index.ts        — Orchestrator: poll loop, routing, debounce, cron scheduler, memory extraction, shutdown
 src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
-src/tools.ts        — In-process MCP server: 19 tools with cron support (createSdkMcpServer)
-src/cron.ts         — 5-field cron parser + cronToHuman()
+src/tools.ts        — In-process MCP server: 22 tools (schedule/skills/MCP/memory/search/audit)
+src/cron.ts         — 5-field cron parser + @nicknames + cronToHuman()
 src/systemTasks.ts  — System tasks: morning check-in + dream/consolidation (ensureSystemTasks)
-src/hooks.ts        — Security hooks: 5 PreToolUse matchers (60+ bash deny patterns) + SubagentStart + PreCompact
+src/hooks.ts        — Security hooks: 5 PreToolUse matchers (43 bash deny patterns) + SubagentStart + PreCompact
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/config.ts       — .env loading
@@ -55,9 +55,11 @@ npx tsc --noEmit     # Type-check only
 
 ## Security
 - Dedicated `cakeagent` system user with nologin shell
-- systemd: `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true`
+- systemd: `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`
 - Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh` (agent told it only has apt)
-- 5 PreToolUse hooks: Bash (60+ deny patterns + command normalization), Read, Grep, Glob, Write/Edit
+- 5 PreToolUse hooks: Bash (43 deny patterns + quote-stripped normalization), Read, Grep, Glob, Write/Edit
+- Symlink-aware path checks via `realpathSync` (defeats `/tmp` symlink bypass)
+- SSRF guard on outbound fetch (`install_skill`, registry) — rejects private/loopback/metadata
 - SubagentStart hook logs all subagent launches to audit_log
 - PreCompact hook archives conversations on context compaction
 - Bash commands normalized (quotes stripped) before deny-pattern matching
