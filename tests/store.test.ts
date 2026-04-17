@@ -97,3 +97,199 @@ test('store: skill index loads and saves', () => {
   assert.equal(idx.outlook?.sha, 'abc123def456');
   assert.equal(idx.outlook?.summary, 'Email integration');
 });
+
+// --- Group registration ---
+
+test('store: registerGroup + getGroupByChatId roundtrip', () => {
+  store.registerGroup({ chatId: 'g1', name: 'Test', folder: 'test-group', trigger: 'hey bot' });
+  const g = store.getGroupByChatId('g1');
+  assert.ok(g);
+  assert.equal(g!.folder, 'test-group');
+  assert.equal(g!.trigger, 'hey bot');
+  assert.equal(g!.name, 'Test');
+});
+
+test('store: registerGroup with empty trigger (main group pattern)', () => {
+  store.registerGroup({ chatId: 'main1', name: 'Main', folder: 'main', trigger: '' });
+  const g = store.getGroupByChatId('main1');
+  assert.ok(g);
+  assert.equal(g!.trigger, '');
+  assert.equal(g!.folder, 'main');
+});
+
+test('store: registerGroup is idempotent (same chatId overwrites)', () => {
+  store.registerGroup({ chatId: 'idem1', name: 'V1', folder: 'idem-folder', trigger: 'v1' });
+  store.registerGroup({ chatId: 'idem1', name: 'V2', folder: 'idem-folder', trigger: 'v2' });
+  const g = store.getGroupByChatId('idem1');
+  assert.equal(g!.name, 'V2');
+  assert.equal(g!.trigger, 'v2');
+});
+
+test('store: registerGroup handles chatId change for same folder', () => {
+  store.registerGroup({ chatId: 'old-chat', name: 'Main', folder: 'main-switch', trigger: '' });
+  assert.ok(store.getGroupByChatId('old-chat'));
+  store.registerGroup({ chatId: 'new-chat', name: 'Main', folder: 'main-switch', trigger: '' });
+  assert.equal(store.getGroupByChatId('old-chat'), undefined);
+  assert.ok(store.getGroupByChatId('new-chat'));
+  assert.equal(store.getGroupByChatId('new-chat')!.folder, 'main-switch');
+});
+
+test('store: getGroupByChatId returns undefined for unknown chat', () => {
+  assert.equal(store.getGroupByChatId('nonexistent-chat-999'), undefined);
+});
+
+test('store: getGroups returns all registered groups', () => {
+  store.registerGroup({ chatId: 'list1', name: 'A', folder: 'list-a', trigger: '' });
+  store.registerGroup({ chatId: 'list2', name: 'B', folder: 'list-b', trigger: 'hey' });
+  const all = store.getGroups();
+  assert.ok(all.some(g => g.chatId === 'list1'));
+  assert.ok(all.some(g => g.chatId === 'list2'));
+});
+
+// --- Sessions ---
+
+test('store: getSession returns null when no session exists', () => {
+  assert.equal(store.getSession('no-such-group'), null);
+});
+
+test('store: setSession + getSession roundtrip', () => {
+  store.setSession('sess-group', 'session-abc-123');
+  assert.equal(store.getSession('sess-group'), 'session-abc-123');
+});
+
+test('store: setSession overwrites previous session', () => {
+  store.setSession('overwrite-group', 'old-session');
+  store.setSession('overwrite-group', 'new-session');
+  assert.equal(store.getSession('overwrite-group'), 'new-session');
+});
+
+test('store: setSession with empty string clears session', () => {
+  store.setSession('clear-group', 'some-session');
+  store.setSession('clear-group', '');
+  assert.equal(store.getSession('clear-group'), '');
+});
+
+// --- Schedule management ---
+
+test('store: addSchedule + getScheduleByTask roundtrip', () => {
+  store.addSchedule({
+    groupFolder: 'main', chatId: 'sched1', task: 'unique-test-task-abc',
+    scheduleType: 'cron', scheduleValue: '0 9 * * *', contextMode: 'isolated',
+    nextRun: new Date(Date.now() + 60_000).toISOString(), status: 'active',
+    recurring: true, system: false,
+  });
+  const found = store.getScheduleByTask('unique-test-task-abc');
+  assert.ok(found);
+  assert.equal(found!.scheduleType, 'cron');
+  assert.equal(found!.scheduleValue, '0 9 * * *');
+  assert.equal(found!.recurring, 1); // SQLite returns integer
+  assert.equal(found!.status, 'active');
+});
+
+test('store: updateSchedule changes status', () => {
+  const id = store.addSchedule({
+    groupFolder: 'main', chatId: 'sched2', task: 'pause-me-task',
+    scheduleType: 'cron', scheduleValue: '0 8 * * *', contextMode: 'isolated',
+    nextRun: new Date(Date.now() + 60_000).toISOString(), status: 'active',
+    recurring: true, system: true,
+  });
+  store.updateSchedule(id, { status: 'paused' } as any);
+  const after = store.getScheduleByTask('pause-me-task');
+  assert.equal(after, undefined); // getScheduleByTask only finds active
+});
+
+test('store: updateSchedule changes cron value and nextRun', () => {
+  const id = store.addSchedule({
+    groupFolder: 'main', chatId: 'sched3', task: 'update-cron-task',
+    scheduleType: 'cron', scheduleValue: '0 8 * * *', contextMode: 'isolated',
+    nextRun: '2026-04-17T08:00:00Z', status: 'active',
+    recurring: true, system: true,
+  });
+  store.updateSchedule(id, { scheduleValue: '30 9 * * *', nextRun: '2026-04-17T09:30:00Z' } as any);
+  const t = store.getScheduleByTask('update-cron-task');
+  assert.ok(t);
+  assert.equal(t!.scheduleValue, '30 9 * * *');
+  assert.equal(t!.nextRun, '2026-04-17T09:30:00Z');
+});
+
+test('store: getDueSchedules returns tasks with nextRun <= now', () => {
+  const past = new Date(Date.now() - 60_000).toISOString();
+  const future = new Date(Date.now() + 3600_000).toISOString();
+  store.addSchedule({
+    groupFolder: 'main', chatId: 'due1', task: 'due-past-task',
+    scheduleType: 'once', scheduleValue: '0', contextMode: 'isolated',
+    nextRun: past, status: 'active', recurring: false, system: false,
+  });
+  store.addSchedule({
+    groupFolder: 'main', chatId: 'due2', task: 'due-future-task',
+    scheduleType: 'once', scheduleValue: '0', contextMode: 'isolated',
+    nextRun: future, status: 'active', recurring: false, system: false,
+  });
+  const due = store.getDueSchedules(new Date().toISOString());
+  assert.ok(due.some(t => t.task === 'due-past-task'));
+  assert.ok(!due.some(t => t.task === 'due-future-task'));
+});
+
+test('store: getMissedSchedules returns overdue active tasks', () => {
+  const past = new Date(Date.now() - 120_000).toISOString();
+  store.addSchedule({
+    groupFolder: 'main', chatId: 'miss1', task: 'missed-task-xyz',
+    scheduleType: 'once', scheduleValue: '0', contextMode: 'isolated',
+    nextRun: past, status: 'active', recurring: false, system: false,
+  });
+  const missed = store.getMissedSchedules(new Date().toISOString());
+  assert.ok(missed.some(t => t.task === 'missed-task-xyz'));
+});
+
+test('store: deleteSchedule removes a task', () => {
+  const id = store.addSchedule({
+    groupFolder: 'main', chatId: 'del1', task: 'delete-me-task',
+    scheduleType: 'once', scheduleValue: '0', contextMode: 'isolated',
+    nextRun: new Date(Date.now() + 60_000).toISOString(), status: 'active',
+    recurring: false, system: false,
+  });
+  store.deleteSchedule(id);
+  assert.equal(store.getScheduleByTask('delete-me-task'), undefined);
+});
+
+test('store: countActiveSchedules counts only active tasks', () => {
+  const before = store.countActiveSchedules();
+  const id = store.addSchedule({
+    groupFolder: 'main', chatId: 'cnt1', task: 'count-test-task',
+    scheduleType: 'cron', scheduleValue: '0 0 * * *', contextMode: 'isolated',
+    nextRun: new Date(Date.now() + 60_000).toISOString(), status: 'active',
+    recurring: true, system: false,
+  });
+  assert.equal(store.countActiveSchedules(), before + 1);
+  store.updateSchedule(id, { status: 'completed' } as any);
+  assert.equal(store.countActiveSchedules(), before);
+});
+
+test('store: getAllSchedules excludes completed tasks', () => {
+  const id = store.addSchedule({
+    groupFolder: 'main', chatId: 'all1', task: 'all-sched-test',
+    scheduleType: 'once', scheduleValue: '0', contextMode: 'isolated',
+    nextRun: new Date().toISOString(), status: 'active',
+    recurring: false, system: false,
+  });
+  assert.ok(store.getAllSchedules().some(t => t.task === 'all-sched-test'));
+  store.updateSchedule(id, { status: 'completed' } as any);
+  assert.ok(!store.getAllSchedules().some(t => t.task === 'all-sched-test'));
+});
+
+// --- KV store ---
+
+test('store: getKv returns null for missing key', () => {
+  assert.equal(store.getKv('nonexistent-key-xyz'), null);
+});
+
+test('store: setKv + getKv roundtrip', () => {
+  store.setKv('test-key', 'test-value');
+  assert.equal(store.getKv('test-key'), 'test-value');
+});
+
+test('store: setKv overwrites previous value', () => {
+  store.setKv('overwrite-key', 'old');
+  store.setKv('overwrite-key', 'new');
+  assert.equal(store.getKv('overwrite-key'), 'new');
+});
