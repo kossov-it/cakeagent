@@ -23,8 +23,16 @@ Two ecosystems for connecting to external services:
 When user asks to connect to a service: search MCP registry AND skills.sh in parallel. Present the best option — prefer MCP if both exist (structured tools > CLI). Install after user confirms.
 
 ## Tools
-- When something is missing (a package, a binary, a dependency), DO NOT tell the user to install it. Install it yourself immediately using `sudo apt-get install -y <package>` or `npm i <package>`. You have passwordless sudo for `apt-get` and `apt` only. Never ask the user to SSH in — you ARE the server.
-- You do NOT have sudo access to `dpkg`, `systemctl`, or other system commands. Service management and direct package manipulation are not available.
+- When something is missing (package, binary, dependency), install it yourself. Never ask the user to SSH in — you ARE the server.
+- You have passwordless sudo for: `apt-get`, `apt`, `dpkg`, `systemctl`, and the `setup.sh` helper. Service management (`sudo systemctl restart nginx`, `daemon-reload`, `enable`, `start`, `stop`) works — except for `sshd`, `ssh`, `networking`, `cakeagent`, and you cannot `stop`/`disable` firewalls or `mask` services.
+- To write config files under `/etc/`, use the `install-config` helper (direct `Write`/`Edit` on `/etc/` and `sudo tee /etc/...` are blocked). Two-step flow — Write the config to a staging file first, then install it:
+  1. `Write` tool → `/opt/cakeagent/data/tmp/myapp.conf` with the nginx/systemd/etc content.
+  2. Bash: `sudo bash /opt/cakeagent/setup.sh install-config /etc/nginx/sites-available/myapp /opt/cakeagent/data/tmp/myapp.conf`
+  3. Bash: `sudo systemctl reload nginx` (or `daemon-reload` for new units).
+  
+  Simple single-line configs work via stdin: `echo "net.ipv4.ip_forward=1" | sudo bash /opt/cakeagent/setup.sh install-config /etc/sysctl.d/99-fwd.conf`. Heredocs with `{...;...}` (nginx, systemd) are caught by the brace-group guard — use the two-step flow instead. To delete: `sudo bash /opt/cakeagent/setup.sh remove-config <path>`.
+- Allowed `install-config` destinations (see `setup.sh`): nginx, apache2, caddy, systemd units/timers/sockets, letsencrypt hooks, sysctl.d, apt sources.list.d + keyrings, logrotate.d, fail2ban jails/filters, redis/mysql/postgres conf.d, prometheus/grafana, nftables.d. Critical files (sudoers, shadow, ssh, pam.d, cron.d, ld.so.preload, /etc/hosts, /etc/resolv.conf, /etc/fstab, /etc/sysctl.conf, the cakeagent unit) are always denied.
+- Firewall: `nft add rule ...` and `nft delete rule ...` work directly (no sudo needed on most systems, or via `sudo` where required). Destructive ops (`nft flush`, `nft delete table`, `iptables -F/-X/-Z`, default-accept policy, any rule on port 22) are blocked.
 - NEVER modify files in `src/`, `channels/`, `dist/`, or `package.json`. You cannot edit your own source code. These are blocked by security hooks (Write, Edit, and Bash redirects).
 - NEVER run `npm run build` or `tsc` — only `/update` should compile code.
 - NEVER ask the user to restart or run commands on the server. If a restart is needed, tell them to send `/restart` in this chat.
@@ -73,9 +81,9 @@ Blocked:
 - `$(curl ...)`, `$(wget ...)` — subshell exfiltration
 - `$(rm ...)`, `$(dd ...)`, `$(mv ...)` — subshell destructive
 - Backtick execution, `eval`, `bash -c`, pipe to shell
-- Reading `.env`, `.pem`, `.ssh/`, `credentials/`, `/etc/shadow`
-- Writing to `src/`, `channels/`, `dist/`, `data/skills/`
-- Reverse shells (`nc`, `/dev/tcp`), `reboot`, `shutdown`
+- Reading `.env`, `.pem`, `.ssh/`, `credentials/`, `/etc/shadow`, `/etc/sudoers`, `/etc/pam.d/`, `/etc/ld.so.preload`
+- Writing to `src/`, `channels/`, `dist/`, `data/skills/`, critical `/etc/` files
+- Reverse shells (`nc`, `/dev/tcp`), `reboot`, `shutdown`, `passwd`, `useradd`
 
 If a command is denied, do NOT tell the user "Bash is blocked." Instead, rephrase the command to avoid the blocked pattern. Most denials are caused by using dangerous subshell patterns — restructure as separate commands.
 

@@ -64,14 +64,26 @@ const BASH_DENY = [
 
   // Critical system files — block all access via Bash (reads, writes, redirects)
   // Agent can still configure nginx, mysql, letsencrypt, systemd services, sysctl.d, sources.list.d
-  /\/etc\/(shadow|passwd|sudoers)/,
+  // via `sudo bash setup.sh install-config <path>` which validates the target against an allowlist.
+  /\/etc\/(shadow|passwd|group|gshadow)(-|\b)/,
+  /\/etc\/sudoers(\.d)?\b/,
   /\/etc\/ssh\//,
+  /\/etc\/pam\.d(\/|\b)/,
+  /\/etc\/security(\/|\b)/,
+  /\/etc\/ld\.so\.(preload|conf(\.d)?)(\/|\b)/,
+  /\/etc\/profile(\.d)?(\/|\b)/,
+  /\/etc\/bash\.bashrc\b/,
+  /\/etc\/environment\b/,
+  /\/etc\/cron\.(d|daily|hourly|monthly|weekly)(\/|\b)/,
+  /\/etc\/crontab\b/,
   /\/etc\/hosts\b/,
   /\/etc\/resolv\.conf\b/,
   /\/etc\/hostname\b/,
   /\/etc\/fstab\b/,
+  /\/etc\/nsswitch\.conf\b/,
   /\/etc\/sysctl\.conf\b/,
   /\/etc\/apt\/sources\.list(?!\.d)/,
+  /\/etc\/apt\/trusted\.gpg/,
   /\/etc\/systemd\/system\/cakeagent/,
 
   // System administration — allow service management, protect critical services
@@ -118,13 +130,16 @@ const BASH_DENY = [
 // Protected file paths — agent must not modify these
 const SENSITIVE_PATHS = [/\.env$/, /\.ssh\//, /credentials\//, /\/etc\/shadow/, /\/etc\/passwd/, /id_rsa/, /\.pem$/];
 
+// Write/Edit is blocked for these paths. Note that /etc/ writes will also fail
+// due to file ownership (cakeagent user can't write root-owned files); this
+// layer is belt-and-suspenders and covers symlinked bypasses. The canonical
+// write path for /etc/ is `sudo bash setup.sh install-config <path>`.
 const PROTECTED_PATHS = [
   /CLAUDE\.md$/i,
   /\.claude\//,
   /\.env$/,
   /credentials\//,
   /\.ssh\//,
-  /\/etc\//,
   /\.pem$/,
   /\/src\//,
   /\/channels\//,
@@ -138,6 +153,29 @@ const PROTECTED_PATHS = [
   /\.mcp\.json$/,              // MCP servers must be managed via install_tool/remove_tool
   /cakeagent\.service$/,       // systemd unit
   /setup\.sh$/,                // provisioning script
+
+  // Critical /etc/ paths — individual entries (replaces the blanket /etc/ block
+  // so the agent can use install-config for non-critical /etc/ writes).
+  /\/etc\/(shadow|passwd|group|gshadow)(-|$)/,
+  /\/etc\/sudoers(\.d)?(\/|$)/,
+  /\/etc\/ssh(\/|$)/,
+  /\/etc\/pam\.d(\/|$)/,
+  /\/etc\/security(\/|$)/,
+  /\/etc\/ld\.so\.(preload|conf(\.d)?)(\/|$)/,
+  /\/etc\/profile(\.d)?(\/|$)/,
+  /\/etc\/bash\.bashrc$/,
+  /\/etc\/environment$/,
+  /\/etc\/cron\.(d|daily|hourly|monthly|weekly)(\/|$)/,
+  /\/etc\/crontab$/,
+  /\/etc\/hosts$/,
+  /\/etc\/hostname$/,
+  /\/etc\/resolv\.conf$/,
+  /\/etc\/fstab$/,
+  /\/etc\/nsswitch\.conf$/,
+  /\/etc\/sysctl\.conf$/,
+  /\/etc\/apt\/sources\.list$/,
+  /\/etc\/apt\/trusted\.gpg/,
+  /\/etc\/systemd\/system\/cakeagent/,
 ];
 
 // Resolve a user-supplied path through symlinks and compare to the protected list.
