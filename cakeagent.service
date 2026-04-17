@@ -33,7 +33,9 @@ ProtectProc=invisible
 LockPersonality=true
 RestrictRealtime=true
 RestrictNamespaces=true
-RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+# AF_NETLINK required so agent-invoked nft/iptables/ip route can speak to the
+# kernel (netfilter, routing). Without it, sudoers-allowed firewall tools fail.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 SystemCallArchitectures=native
 UMask=0077
 RemoveIPC=true

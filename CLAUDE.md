@@ -54,8 +54,9 @@ npx tsc --noEmit     # Type-check only
 ## Security
 - Dedicated `cakeagent` system user with nologin shell
 - systemd: `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`
-- Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `bash setup.sh *`
-- `setup.sh install-config <path>` writes validated config files to `/etc/` (nginx, systemd units, sysctl.d, apt sources.list.d, logrotate.d, etc.) without giving sudo `tee`/`cp`. Critical files (sudoers, shadow, ssh, pam.d, cron.d, ld.so.preload, hosts, resolv.conf, fstab, cakeagent.service) are hard-denied in the helper *and* the bash/Write hooks
+- Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `nft`, `iptables`, `ip6tables`, `bash setup.sh *`
+- systemd `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK` — NETLINK required so sudo-allowed `nft`/`iptables` can speak to the kernel
+- `setup.sh install-config <path>` writes validated config files to `/etc/` (nginx, systemd units, sysctl.d, apt sources.list.d, logrotate.d, nftables.conf, etc.) without giving sudo `tee`/`cp` (sudoers wildcards in args allow path traversal, so `/usr/bin/tee /etc/nginx/*` is unsafe). Critical files (sudoers, shadow, ssh, pam.d, cron.d, ld.so.preload, hosts, resolv.conf, fstab, cakeagent.service) are hard-denied in the helper *and* the bash/Write hooks
 - 5 PreToolUse hooks: Bash (85+ deny patterns + quote-stripped normalization), Read, Grep, Glob, Write/Edit
 - Symlink-aware path checks via `realpathSync` (defeats `/tmp` symlink bypass)
 - SSRF guard on outbound fetch (`install_skill`, registry) — rejects private/loopback/metadata
