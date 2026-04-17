@@ -13,14 +13,6 @@ export function initVoice(dataDir: string): void {
   DATA_DIR = dataDir;
 }
 
-function whisperBin(): string {
-  return existsSync(WHISPER_LOCAL) ? WHISPER_LOCAL : 'whisper-cli';
-}
-
-function edgeTtsBin(): string {
-  return existsSync(EDGE_TTS_LOCAL) ? EDGE_TTS_LOCAL : 'edge-tts';
-}
-
 function tmpPath(ext: string): string {
   return join(tmpdir(), `cakeagent_${randomBytes(6).toString('hex')}.${ext}`);
 }
@@ -53,7 +45,7 @@ export async function transcribeAudio(
     }
 
     const outPrefix = wavFile.replace(/\.[^.]+$/, '');
-    await execAsync(whisperBin(), ['-m', modelPath, '-f', wavFile, '-oj', '-of', outPrefix, '-np']);
+    await execAsync(WHISPER_LOCAL, ['-m', modelPath, '-f', wavFile, '-oj', '-of', outPrefix, '-np']);
 
     const jsonFile = outPrefix + '.json';
     if (existsSync(jsonFile)) {
@@ -82,8 +74,7 @@ export async function synthesizeSpeech(
 
   try {
     const voice = settings.voiceTtsVoice || 'en-US-AriaNeural';
-    const bin = edgeTtsBin();
-    await execAsync(bin, ['--voice', voice, '--text', text, '--write-media', mp3File]);
+    await execAsync(EDGE_TTS_LOCAL, ['--voice', voice, '--text', text, '--write-media', mp3File]);
 
     if (!existsSync(mp3File)) {
       console.warn('[voice] edge-tts produced no output');
@@ -104,13 +95,9 @@ export async function synthesizeSpeech(
 
 export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; missing: string[] }> {
   const missing: string[] = [];
-  let stt = false;
-  let tts = false;
 
-  try {
-    await execAsync(whisperBin(), ['-h']);
-    stt = true;
-  } catch { missing.push('whisper-cli (install whisper.cpp for STT)'); }
+  const stt = existsSync(WHISPER_LOCAL);
+  if (!stt) missing.push('whisper-cli (install whisper.cpp for STT)');
 
   try {
     await execAsync('ffmpeg', ['-version']);
@@ -120,10 +107,8 @@ export async function checkVoiceDeps(): Promise<{ stt: boolean; tts: boolean; mi
     missing.push('whisper model (download from whisper.cpp/models/)');
   }
 
-  try {
-    await execAsync(edgeTtsBin(), ['--version']);
-    tts = true;
-  } catch { missing.push('edge-tts (run: pip3 install edge-tts)'); }
+  const tts = existsSync(EDGE_TTS_LOCAL);
+  if (!tts) missing.push('edge-tts (run: pip3 install edge-tts)');
 
   return { stt, tts, missing };
 }
