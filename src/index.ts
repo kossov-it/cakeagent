@@ -1,4 +1,3 @@
-import { loadConfig } from './config.js';
 import * as store from './store.js';
 import { createTools } from './tools.js';
 import { createHooks } from './hooks.js';
@@ -8,14 +7,59 @@ import { createTelegramChannel } from '../channels/telegram.js';
 import { existsSync, writeFileSync, readFileSync, mkdirSync, statSync, chmodSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { join, resolve } from 'node:path';
-import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask } from './types.js';
+import type { SharedState, TelegramUpdate, CakeSettings, IncomingMessage, ScheduledTask, Config } from './types.js';
 import { DEFAULT_SETTINGS, VALID_MODELS, VALID_THINKING_LEVELS, INJECTION_PATTERNS, sanitizeMemory } from './types.js';
 import { parseCronExpression, computeNextCronRun } from './cron.js';
-import { ensureSystemTasks } from './systemTasks.js';
+
+function loadConfig(): Config {
+  const envPath = resolve('.env');
+  const env: Record<string, string> = {};
+
+  if (existsSync(envPath)) {
+    for (const line of readFileSync(envPath, 'utf-8').split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq === -1) continue;
+      let key = trimmed.slice(0, eq).trim();
+      if (key.startsWith('export ')) key = key.slice(7).trim();
+      let val = trimmed.slice(eq + 1).trim();
+      if (!val.startsWith('"') && !val.startsWith("'")) {
+        const commentIdx = val.indexOf(' #');
+        if (commentIdx > 0) val = val.slice(0, commentIdx).trim();
+      }
+      if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+        val = val.slice(1, -1);
+      }
+      env[key] = val;
+    }
+  }
+
+  const get = (key: string): string | undefined => process.env[key] || env[key];
+
+  const token = get('TELEGRAM_BOT_TOKEN');
+  const chatId = get('TELEGRAM_CHAT_ID');
+
+  if (!token || !chatId) {
+    console.error('Missing required environment variables:');
+    if (!token) console.error('  TELEGRAM_BOT_TOKEN — get one from @BotFather on Telegram');
+    if (!chatId) console.error('  TELEGRAM_CHAT_ID   — your Telegram user ID (message @userinfobot)');
+    console.error('\nCopy .env.example to .env and fill in the values.');
+    process.exit(1);
+  }
+
+  return {
+    telegramBotToken: token,
+    telegramChatId: chatId,
+    dataDir: resolve(get('DATA_DIR') || './data'),
+    groupsDir: resolve(get('GROUPS_DIR') || './groups'),
+  };
+}
 
 const config = loadConfig();
 store.initDb(config.dataDir);
 initVoice(config.dataDir);
+store.registerGroup({ chatId: config.telegramChatId, name: 'Main', folder: 'main', trigger: '' });
 
 const settings = store.loadSettings();
 const groupsDir = resolve(config.groupsDir);
@@ -66,11 +110,7 @@ function validateStartup(): void {
 }
 validateStartup();
 
-const allowedChatIds = () => {
-  const ids = new Set([config.telegramChatId]);
-  for (const g of store.getGroups()) ids.add(g.chatId);
-  return ids;
-};
+const allowedChatIds = () => new Set(store.getGroups().map(g => g.chatId));
 const telegram = createTelegramChannel(config.telegramBotToken, allowedChatIds, {
   load: () => Number(store.getKv('tg_offset') ?? '0'),
   save: (o) => store.setKv('tg_offset', String(o)),
@@ -116,7 +156,93 @@ function refreshBotCommands(force = false) {
 refreshBotCommands(true);
 
 // --- System tasks + missed task recovery ---
-ensureSystemTasks(config.telegramChatId, config.dataDir);
+
+const SYSTEM_TASKS: Array<{
+  key: string;
+  settingsField: 'morningCheckinCron' | 'dreamCron';
+  task: string;
+  contextMode: 'group' | 'isolated';
+}> = [
+  {
+    key: 'system:morning-checkin',
+    settingsField: 'morningCheckinCron',
+    task: 'Review your memory and any pending scheduled tasks. Send a brief morning summary to the user including: today\'s scheduled tasks, any recent items of note, and any action items. Be concise.',
+    contextMode: 'isolated',
+  },
+  {
+    key: 'system:dream',
+    settingsField: 'dreamCron',
+    task: 'Review the [MEMORY] block. Remove outdated entries, merge duplicates, fix contradictions, and keep it concise and well-organized. Use the rewrite_memory tool with the cleaned content. Only use send_message if something notable was found or changed.',
+    contextMode: 'isolated',
+  },
+];
+
+function ensureSystemTasks(chatId: string): void {
+  const s = store.loadSettings();
+
+  for (const def of SYSTEM_TASKS) {
+    const cronExpr = s[def.settingsField];
+    const existing = store.getScheduleByTask(def.task);
+
+    if (!cronExpr) {
+      if (existing && existing.status === 'active') {
+        store.updateSchedule(existing.id, { status: 'paused' } as any);
+        console.log(`[system-tasks] Paused ${def.key} (cron empty in settings)`);
+      }
+      continue;
+    }
+
+    const fields = parseCronExpression(cronExpr);
+    if (!fields) {
+      console.warn(`[system-tasks] Invalid cron for ${def.key}: "${cronExpr}"`);
+      continue;
+    }
+
+    if (existing) {
+      if (existing.status === 'paused') {
+        const next = computeNextCronRun(fields, new Date());
+        if (next) {
+          store.updateSchedule(existing.id, {
+            status: 'active',
+            scheduleValue: cronExpr,
+            nextRun: next.toISOString(),
+          } as any);
+          console.log(`[system-tasks] Re-activated ${def.key}`);
+        }
+      }
+      if (existing.scheduleValue !== cronExpr) {
+        const next = computeNextCronRun(fields, new Date());
+        if (next) {
+          store.updateSchedule(existing.id, {
+            scheduleValue: cronExpr,
+            nextRun: next.toISOString(),
+          } as any);
+          console.log(`[system-tasks] Updated ${def.key} cron to "${cronExpr}"`);
+        }
+      }
+      continue;
+    }
+
+    const next = computeNextCronRun(fields, new Date());
+    if (!next) continue;
+
+    store.addSchedule({
+      groupFolder: 'main',
+      chatId,
+      task: def.task,
+      scheduleType: 'cron',
+      scheduleValue: cronExpr,
+      contextMode: def.contextMode,
+      nextRun: next.toISOString(),
+      status: 'active',
+      recurring: true,
+      system: true,
+    });
+    console.log(`[system-tasks] Created ${def.key} (${cronExpr}, next: ${next.toISOString()})`);
+  }
+}
+
+ensureSystemTasks(config.telegramChatId);
 
 const taskQueue: ScheduledTask[] = [];
 
@@ -152,14 +278,15 @@ const taskQueue: ScheduledTask[] = [];
 const startTime = Date.now();
 console.log(`[cakeagent] Started. Model: ${settings.model}. Main chat: ${config.telegramChatId}`);
 
-// Fresh install = empty memory, no skills, no registered groups. On first boot
-// we greet the user proactively so they don't need to guess what to say. On
-// subsequent boots we send a terse "Restarted." so they know the service came
-// back up (e.g. after /update or a crash).
+const COMMANDS_HELP =
+  '/status — Bot status\n/settings — Settings menu\n/skills — Installed skills\n' +
+  '/reset — Reset session\n/update — Pull latest code and restart\n/restart — Restart bot\n' +
+  '/help — This message\n\nEverything else goes to the agent.';
+
 const memoryEmpty = !existsSync(memPath) || readFileSync(memPath, 'utf-8').trim() === '';
 const isFreshInstall = memoryEmpty
   && Object.keys(store.loadSkillIndex()).length === 0
-  && store.getGroups().length === 0;
+  && store.getGroups().length <= 1;
 
 const welcome = isFreshInstall
   ? `🍰 *Welcome to ${settings.assistantName}*\n\n` +
@@ -169,7 +296,7 @@ const welcome = isFreshInstall
     `• Mention anything I should remember (preferences, routines)\n` +
     `• Ask me to connect a service ("connect Google Calendar") — I'll install it\n` +
     `• Toggle voice, model, and thinking level via /settings\n\n` +
-    `Type /help for the command list. Morning briefs run daily at 8:57 unless you disable them.`
+    `*Commands:*\n${COMMANDS_HELP}\n\nMorning briefs run daily at 8:57 unless you disable them.`
   : 'Restarted.';
 telegram.send(config.telegramChatId, welcome).catch(() => {});
 
@@ -191,7 +318,7 @@ async function handleSettingsCallback(data: string, settings: CakeSettings, chat
   } else if (key === 'morningCheckin') {
     settings.morningCheckinCron = settings.morningCheckinCron ? '' : DEFAULT_SETTINGS.morningCheckinCron;
     store.saveSettings(settings);
-    ensureSystemTasks(config.telegramChatId, config.dataDir);
+    ensureSystemTasks(config.telegramChatId);
     return settings;
   } else if (key === 'voiceReceive' || key === 'voiceSend') {
     const wasAnyOn = settings.voiceReceive || settings.voiceSend;
@@ -350,9 +477,7 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
       return true;
     }
     case 'help':
-      await telegram.send(chatId,
-        '/status — Bot status\n/settings — Settings menu\n/skills — Installed skills\n/reset — Reset session\n/update — Pull latest code and restart\n/restart — Restart bot\n/help — This message\n\nEverything else goes to the agent.'
-      );
+      await telegram.send(chatId, COMMANDS_HELP);
       return true;
     default:
       return false;
@@ -360,17 +485,15 @@ async function handleChatCommand(cmd: string, chatId: string): Promise<boolean> 
 }
 
 function resolveGroup(chatId: string): string | null {
-  if (chatId === config.telegramChatId) return 'main';
-  const group = store.getGroupByChatId(chatId);
-  return group?.folder ?? null;
+  return store.getGroupByChatId(chatId)?.folder ?? null;
 }
 
 function shouldTrigger(msg: IncomingMessage, groupFolder: string): boolean {
-  if (groupFolder === 'main') return true;
   const group = store.getGroupByChatId(msg.chatId);
   if (!group) return false;
-  const settings = store.loadSettings();
-  const pattern = group.trigger || settings.triggerPattern;
+  if (!group.trigger) return true;
+  const s = store.loadSettings();
+  const pattern = group.trigger || s.triggerPattern;
   return msg.text?.toLowerCase().includes(pattern.toLowerCase()) ?? false;
 }
 

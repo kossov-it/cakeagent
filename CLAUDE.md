@@ -13,15 +13,13 @@ Minimal, secure personal AI assistant built on the Claude Agent SDK. Connects to
 
 ## Directory Layout
 ```
-src/index.ts        — Orchestrator: poll loop, routing, debounce, cron scheduler, memory extraction, shutdown
+src/index.ts        — Orchestrator: poll loop, routing, debounce, cron scheduler, memory extraction, .env loading, system tasks, shutdown
 src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
 src/tools.ts        — In-process MCP server: 22 tools (schedule/skills/MCP/memory/search/audit)
 src/cron.ts         — 5-field cron parser + @nicknames + cronToHuman()
-src/systemTasks.ts  — System tasks: morning check-in + dream/consolidation (ensureSystemTasks)
 src/hooks.ts        — Security hooks: 5 PreToolUse matchers (43 bash deny patterns) + SubagentStart + PreCompact
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
-src/config.ts       — .env loading
 src/types.ts        — Shared types + validation constants
 channels/telegram.ts — Raw fetch Telegram adapter (retry, HTML, chunking)
 groups/main/CLAUDE.md — Agent identity + rules (not this file)
@@ -48,7 +46,7 @@ npx tsc --noEmit     # Type-check only
 - Sequential processing — one agent invocation at a time
 - Settings hot-reloaded from `data/settings.json` per invocation
 - Cron scheduling via `src/cron.ts` — 5-field cron expressions
-- System tasks (morning check-in, dream) created on first boot via `src/systemTasks.ts`
+- System tasks (morning check-in, dream) created on first boot via `ensureSystemTasks()` in index.ts
 - Auto memory extraction runs every N conversations — silent background agent call
 - Missed scheduled tasks recovered on startup (one-shot fire, recurring advance)
 - Task queue prevents dropped tasks when agent is busy

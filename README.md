@@ -5,13 +5,9 @@
 # 🍰 CakeAgent
 
 [![Build](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml/badge.svg)](https://github.com/kossov-it/cakeagent/actions/workflows/build.yml)
-![Lines](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/lines.json)
-![Files](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/files.json)
-![Deps](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/deps.json)
-![Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/kossov-it/cakeagent/main/.badges/size.json)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A personal AI agent you can actually read — around 2,900 lines of code, 11 files, and 3 runtime dependencies.
+A personal AI agent you can actually read — around 2,900 lines of code, 9 files, and 3 runtime dependencies.
 
 CakeAgent connects Claude to Telegram and gives it tools, voice, scheduling, file access, web search, and code execution. New capabilities come from two ecosystems: **MCP** (runtime tool servers) and **skills.sh** (knowledge-driven CLI integrations). Ask "add Google Calendar" in chat and it installs itself.
 
@@ -23,11 +19,11 @@ Runs as a single Node.js process under a dedicated system user. No containers, n
 
 Open-source AI assistants have a bloat problem. The popular ones ship 400K+ lines of code, 50+ dependencies, WebSocket control planes, and custom plugin marketplaces — then get hit with critical RCE vulnerabilities and tens of thousands of exposed instances. Their plugin ecosystems? Some have been found to leak credentials.
 
-CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire codebase is ~2,900 lines across 11 files. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
+CakeAgent does almost nothing itself and lets the ecosystem do the rest. The entire codebase is ~2,900 lines across 9 files. Integrations come from two open ecosystems — MCP (thousands of tool servers) and skills.sh (CLI knowledge packs). No custom plugin format, no marketplace.
 
 | | CakeAgent | Popular alternatives |
 |---|---|---|
-| **Source code** | ~2,900 LOC, 11 files | 400K+ LOC, 50+ modules |
+| **Source code** | ~2,900 LOC, 9 files | 400K+ LOC, 50+ modules |
 | **Dependencies** | 3 | 47+ direct |
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 277 LOC raw `fetch()` | Framework + adapter |
@@ -120,17 +116,15 @@ Messages go through three layers. Most never reach the Claude API:
 ### Source files
 
 ```
-src/index.ts          773  Orchestrator, routing, debounce, cron scheduler, memory extraction
+src/index.ts          ~850 Orchestrator, routing, debounce, cron scheduler, memory extraction, .env loading, system tasks
 src/tools.ts          471  19 MCP tools with cron support (in-process)
 src/store.ts          321  SQLite: messages, schedules, groups, audit, skills
 src/hooks.ts          275  Security hooks (60+ Bash deny patterns, Read, Grep, Glob, Write/Edit)
 channels/telegram.ts  277  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
 src/cron.ts           234  Cron expression parser + cronToHuman (standard 5-field format)
 src/types.ts          182  Type definitions, shared constants, validation
-src/voice.ts          129  Whisper STT + Edge TTS
+src/voice.ts          ~120 Whisper STT + Edge TTS
 src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
-src/systemTasks.ts     97  System tasks: morning check-in + dream/consolidation
-src/config.ts          48  .env parser
 ```
 
 ---
