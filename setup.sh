@@ -2,14 +2,146 @@
 set -euo pipefail
 
 # For interactive install (curl | bash), redirect stdin from tty
-# Skip for non-interactive modes (update, uninstall from service)
-if [ "${1:-}" != "update" ] && [ "${1:-}" != "uninstall" ] && [ ! -t 0 ] && [ -e /dev/tty ]; then
+# Skip for non-interactive modes (update, uninstall, install-config, remove-config)
+if [ "${1:-}" != "update" ] && [ "${1:-}" != "uninstall" ] && \
+   [ "${1:-}" != "install-config" ] && [ "${1:-}" != "remove-config" ] && \
+   [ ! -t 0 ] && [ -e /dev/tty ]; then
   exec </dev/tty
 fi
 
 INSTALL_DIR="/opt/cakeagent"
 SERVICE_USER="cakeagent"
 SERVICE_NAME="cakeagent"
+
+# --- Shared: validate a target path for install-config / remove-config ---
+# Writes error to stderr and returns 1 on failure, 0 on success.
+validate_config_path() {
+  local target="$1"
+
+  # Reject empty, relative, and paths containing traversal components
+  case "$target" in
+    ''|*' '*) echo "Denied: invalid path" >&2; return 1 ;;
+    /*) ;;
+    *) echo "Denied: path must be absolute" >&2; return 1 ;;
+  esac
+  case "$target" in
+    *..*|*/./*|*//*) echo "Denied: path traversal or normalization issue in: $target" >&2; return 1 ;;
+  esac
+
+  # Hard-deny on the most critical files — even if a prefix allowlists them
+  case "$target" in
+    /etc/sudoers|/etc/sudoers.d|/etc/sudoers.d/*|\
+    /etc/shadow|/etc/shadow-|/etc/gshadow|/etc/gshadow-|\
+    /etc/passwd|/etc/passwd-|/etc/group|/etc/group-|\
+    /etc/ssh|/etc/ssh/*|\
+    /etc/pam.d|/etc/pam.d/*|/etc/security|/etc/security/*|\
+    /etc/ld.so.preload|/etc/ld.so.conf|/etc/ld.so.conf.d/*|\
+    /etc/profile|/etc/profile.d/*|/etc/bash.bashrc|/etc/environment|\
+    /etc/cron.d/*|/etc/cron.daily/*|/etc/cron.hourly/*|/etc/cron.monthly/*|/etc/cron.weekly/*|/etc/crontab|\
+    /etc/hosts|/etc/hostname|/etc/resolv.conf|/etc/fstab|/etc/nsswitch.conf|\
+    /etc/apt/sources.list|/etc/apt/trusted.gpg*|\
+    /etc/systemd/system/cakeagent*|\
+    /etc/sysctl.conf)
+      echo "Denied: critical file: $target" >&2
+      return 1
+      ;;
+  esac
+
+  # Allowlist of directories where writes are permitted
+  case "$target" in
+    /etc/nginx/sites-available/*|/etc/nginx/sites-enabled/*|\
+    /etc/nginx/conf.d/*|/etc/nginx/snippets/*|/etc/nginx/modules-available/*|\
+    /etc/apache2/sites-available/*|/etc/apache2/sites-enabled/*|/etc/apache2/conf-available/*|\
+    /etc/caddy/*|/etc/caddy/Caddyfile|\
+    /etc/systemd/system/*.service|/etc/systemd/system/*.timer|/etc/systemd/system/*.socket|\
+    /etc/systemd/system/*.path|/etc/systemd/system/*.mount|/etc/systemd/system/*.target|\
+    /etc/systemd/system/*.conf.d/*.conf|\
+    /etc/systemd/resolved.conf.d/*.conf|/etc/systemd/network/*|\
+    /etc/letsencrypt/cli.ini|/etc/letsencrypt/renewal-hooks/*/*|\
+    /etc/sysctl.d/*.conf|\
+    /etc/apt/sources.list.d/*.list|/etc/apt/sources.list.d/*.sources|\
+    /etc/apt/preferences.d/*|/etc/apt/keyrings/*|/etc/apt/apt.conf.d/*|\
+    /etc/prometheus/*|/etc/grafana/*|/etc/alertmanager/*|\
+    /etc/logrotate.d/*|\
+    /etc/default/*|\
+    /etc/mysql/conf.d/*|/etc/mysql/mariadb.conf.d/*|\
+    /etc/postgresql/*/main/conf.d/*|\
+    /etc/redis/*.conf|\
+    /etc/fail2ban/jail.d/*|/etc/fail2ban/filter.d/*|/etc/fail2ban/action.d/*|\
+    /etc/ufw/applications.d/*|\
+    /etc/nftables.d/*|/etc/nftables.conf)
+      ;;
+    *)
+      echo "Denied: path not in allowlist: $target" >&2
+      echo "Allowed prefixes include: /etc/nginx/, /etc/systemd/system/*.service, /etc/sysctl.d/, /etc/apt/sources.list.d/, /etc/logrotate.d/, etc. See setup.sh validate_config_path." >&2
+      return 1
+      ;;
+  esac
+
+  return 0
+}
+
+# --- install-config: write a config file to /etc/ with path validation ---
+# Usage:
+#   sudo bash setup.sh install-config <target>                  # content from stdin
+#   sudo bash setup.sh install-config <target> <source-file>    # copy from source
+# The file-input form lets agents avoid embedding nginx-style `{...;...}` in
+# shell commands (the bash hook treats those as brace groups). Write the
+# content with the Write tool first, then install it.
+if [ "${1:-}" = "install-config" ]; then
+  TARGET="${2:-}"
+  SOURCE="${3:-}"
+  if ! validate_config_path "$TARGET"; then
+    exit 1
+  fi
+  # Reject directory-shaped targets (trailing slash, no filename).
+  case "$TARGET" in */) echo "Denied: target must be a file, not a directory: $TARGET" >&2; exit 1 ;; esac
+  if [ -n "$SOURCE" ]; then
+    case "$SOURCE" in
+      /opt/cakeagent/data/*|/tmp/*) ;;
+      *) echo "Denied: source must be under /opt/cakeagent/data/ or /tmp/: $SOURCE" >&2; exit 1 ;;
+    esac
+    case "$SOURCE" in *..*) echo "Denied: path traversal in source: $SOURCE" >&2; exit 1 ;; esac
+    if [ ! -f "$SOURCE" ]; then
+      echo "Source file not found: $SOURCE" >&2
+      exit 1
+    fi
+  fi
+  PARENT="$(dirname "$TARGET")"
+  mkdir -p "$PARENT"
+  TMP="$(mktemp "${TARGET}.XXXXXX.tmp")"
+  trap 'rm -f "$TMP"' EXIT
+  if [ -n "$SOURCE" ]; then
+    head -c $((1024 * 1024)) < "$SOURCE" > "$TMP"
+  else
+    head -c $((1024 * 1024)) > "$TMP"
+  fi
+  chmod 0644 "$TMP"
+  mv "$TMP" "$TARGET"
+  trap - EXIT
+  echo "Wrote $TARGET ($(wc -c < "$TARGET") bytes)"
+  exit 0
+fi
+
+# --- remove-config: delete a file in /etc/ with the same path validation ---
+# Usage: sudo bash setup.sh remove-config <absolute-path>
+if [ "${1:-}" = "remove-config" ]; then
+  TARGET="${2:-}"
+  if ! validate_config_path "$TARGET"; then
+    exit 1
+  fi
+  if [ ! -e "$TARGET" ]; then
+    echo "Not found: $TARGET" >&2
+    exit 1
+  fi
+  if [ ! -f "$TARGET" ]; then
+    echo "Denied: only regular files may be removed: $TARGET" >&2
+    exit 1
+  fi
+  rm -f "$TARGET"
+  echo "Removed $TARGET"
+  exit 0
+fi
 
 # --- Update (pulls code, builds, refreshes service, restarts) ---
 if [ "${1:-}" = "update" ]; then
@@ -33,7 +165,7 @@ if [ "${1:-}" = "update" ]; then
     rm -f /etc/sudoers.d/.writetest
     SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
     cat <<SUDOERS > "$SUDOERS_FILE"
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
@@ -161,7 +293,7 @@ echo "5️⃣  Configuring agent permissions..."
 
 SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
 cat <<SUDOERS | sudo tee "$SUDOERS_FILE" > /dev/null
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS

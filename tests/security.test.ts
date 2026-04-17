@@ -30,7 +30,22 @@ const MUST_DENY: Array<[string, string]> = [
   ['env pipe', 'env | grep SECRET'],
   ['printenv', 'printenv PATH'],
   ['touch /etc/shadow', 'touch /etc/shadow'],
+  ['read /etc/gshadow', 'cat /etc/gshadow'],
   ['write to sudoers', 'echo foo > /etc/sudoers'],
+  ['write to sudoers.d', 'echo foo > /etc/sudoers.d/bypass'],
+  ['write to cron.d', 'echo "* * * * * root /bin/sh" > /etc/cron.d/x'],
+  ['write to cron.daily', 'echo x > /etc/cron.daily/backdoor'],
+  ['write to pam.d', 'echo auth > /etc/pam.d/sshd'],
+  ['write to ld.so.preload', 'echo /tmp/evil.so > /etc/ld.so.preload'],
+  ['write to security/limits', 'echo x > /etc/security/limits.conf'],
+  ['write to profile.d', 'echo x > /etc/profile.d/x.sh'],
+  ['write to environment', 'echo PATH=/evil > /etc/environment'],
+  ['tee sudoers', 'echo foo | sudo tee /etc/sudoers.d/bypass'],
+  ['cat /etc/sudoers', 'cat /etc/sudoers'],
+  ['cat /etc/pam.d/sshd', 'cat /etc/pam.d/sshd'],
+  ['touch /etc/crontab', 'touch /etc/crontab'],
+  ['write to apt sources.list', 'echo deb > /etc/apt/sources.list'],
+  ['tamper apt trusted.gpg', 'echo x > /etc/apt/trusted.gpg'],
   ['stop sshd', 'systemctl stop sshd'],
   ['systemctl mask', 'systemctl mask firewalld'],
   ['reboot', 'reboot'],
@@ -76,6 +91,23 @@ const MUST_ALLOW: Array<[string, string]> = [
   ['ls path', 'ls /tmp'],
   ['git clone', 'git clone --depth 1 https://github.com/x/y.git'],
   ['python script', 'python3 script.py --arg value'],
+  // Server autonomy — writing config files via the install-config helper.
+  // Recommended flow: Write tool writes a staging file under data/tmp/, then:
+  ['install-config nginx from file', 'sudo bash /opt/cakeagent/setup.sh install-config /etc/nginx/sites-available/app /opt/cakeagent/data/tmp/app.conf'],
+  ['install-config systemd unit', 'echo "[Unit]" | sudo bash /opt/cakeagent/setup.sh install-config /etc/systemd/system/myapp.service'],
+  ['install-config sysctl', 'echo "net.ipv4.ip_forward=1" | sudo bash /opt/cakeagent/setup.sh install-config /etc/sysctl.d/99-custom.conf'],
+  ['remove-config cleanup', 'sudo bash /opt/cakeagent/setup.sh remove-config /etc/nginx/sites-available/app'],
+  ['systemctl reload nginx', 'sudo systemctl reload nginx'],
+  ['systemctl restart nginx', 'sudo systemctl restart nginx'],
+  ['systemctl daemon-reload', 'sudo systemctl daemon-reload'],
+  ['nft add rule', 'sudo nft add rule inet filter input tcp dport 80 accept'],
+  ['nft delete rule', 'sudo nft delete rule inet filter input handle 7'],
+  ['nft list ruleset', 'sudo nft list ruleset'],
+  ['iptables add rule', 'sudo iptables -A INPUT -p tcp --dport 443 -j ACCEPT'],
+  ['iptables delete rule', 'sudo iptables -D INPUT -p tcp --dport 443 -j ACCEPT'],
+  ['ip6tables list', 'sudo ip6tables -L'],
+  ['dpkg install deb', 'sudo dpkg -i /tmp/mypkg.deb'],
+  ['read /etc/nginx config', 'cat /etc/nginx/nginx.conf'],
 ];
 
 for (const [label, cmd] of MUST_ALLOW) {
@@ -112,6 +144,52 @@ test('protected path: blocks source, mcp config, skills markdown, tsconfig', () 
   assert.ok(findProtectedPath('/opt/cakeagent/tsconfig.json'));
   assert.ok(findProtectedPath('/opt/cakeagent/cakeagent.service'));
   assert.ok(findProtectedPath('/opt/cakeagent/groups/main/CLAUDE.md'));
+});
+
+test('protected path: blocks critical /etc/ files', () => {
+  assert.ok(findProtectedPath('/etc/sudoers'));
+  assert.ok(findProtectedPath('/etc/sudoers.d/bypass'));
+  assert.ok(findProtectedPath('/etc/shadow'));
+  assert.ok(findProtectedPath('/etc/shadow-'));
+  assert.ok(findProtectedPath('/etc/passwd'));
+  assert.ok(findProtectedPath('/etc/gshadow'));
+  assert.ok(findProtectedPath('/etc/ssh/sshd_config'));
+  assert.ok(findProtectedPath('/etc/pam.d/sshd'));
+  assert.ok(findProtectedPath('/etc/security/limits.conf'));
+  assert.ok(findProtectedPath('/etc/ld.so.preload'));
+  assert.ok(findProtectedPath('/etc/ld.so.conf.d/x.conf'));
+  assert.ok(findProtectedPath('/etc/profile'));
+  assert.ok(findProtectedPath('/etc/profile.d/x.sh'));
+  assert.ok(findProtectedPath('/etc/bash.bashrc'));
+  assert.ok(findProtectedPath('/etc/environment'));
+  assert.ok(findProtectedPath('/etc/cron.d/job'));
+  assert.ok(findProtectedPath('/etc/cron.daily/backup'));
+  assert.ok(findProtectedPath('/etc/crontab'));
+  assert.ok(findProtectedPath('/etc/hosts'));
+  assert.ok(findProtectedPath('/etc/hostname'));
+  assert.ok(findProtectedPath('/etc/resolv.conf'));
+  assert.ok(findProtectedPath('/etc/fstab'));
+  assert.ok(findProtectedPath('/etc/nsswitch.conf'));
+  assert.ok(findProtectedPath('/etc/sysctl.conf'));
+  assert.ok(findProtectedPath('/etc/apt/sources.list'));
+  assert.ok(findProtectedPath('/etc/apt/trusted.gpg'));
+  assert.ok(findProtectedPath('/etc/apt/trusted.gpg.d/key.gpg'));
+  assert.ok(findProtectedPath('/etc/systemd/system/cakeagent.service'));
+});
+
+test('protected path: allows non-critical /etc/ files (routed via install-config)', () => {
+  // These paths are writable by the helper and should not be blocked by the Write/Edit hook.
+  // (Direct Write will still fail with EACCES because cakeagent doesn't own them; the hook
+  // just shouldn't stand in the way of the install-config workflow.)
+  assert.equal(findProtectedPath('/etc/nginx/sites-available/app'), null);
+  assert.equal(findProtectedPath('/etc/nginx/conf.d/custom.conf'), null);
+  assert.equal(findProtectedPath('/etc/systemd/system/myapp.service'), null);
+  assert.equal(findProtectedPath('/etc/systemd/system/myapp.timer'), null);
+  assert.equal(findProtectedPath('/etc/sysctl.d/99-custom.conf'), null);
+  assert.equal(findProtectedPath('/etc/apt/sources.list.d/docker.list'), null);
+  assert.equal(findProtectedPath('/etc/apt/keyrings/docker.asc'), null);
+  assert.equal(findProtectedPath('/etc/logrotate.d/myapp'), null);
+  assert.equal(findProtectedPath('/etc/letsencrypt/cli.ini'), null);
 });
 
 test('protected path: data/memory.md and ordinary files are allowed', () => {
