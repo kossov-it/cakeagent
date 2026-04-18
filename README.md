@@ -28,7 +28,7 @@ CakeAgent does almost nothing itself and lets the ecosystem do the rest. The ent
 | **Open ports** | 0 | WebSocket, HTTP API |
 | **Telegram** | 277 LOC raw `fetch()` | Framework + adapter |
 | **Integrations** | MCP + skills.sh | Custom plugin marketplace |
-| **Security** | 5-layer defense, 75+ deny patterns, every tool call audited | Varies — some have critical RCEs |
+| **Security** | 5-layer defense, ~90 deny patterns, every tool call audited | Varies — some have critical RCEs |
 | **CVEs** | 0 | Multiple critical RCEs |
 
 ---
@@ -58,7 +58,7 @@ The setup script:
 1. Checks Node.js
 2. Creates a `cakeagent` system user (nologin shell, home at `/opt/cakeagent`)
 3. Installs dependencies and builds
-4. Configures passwordless sudo (`apt-get`, `apt`, `dpkg`, `systemctl`, `setup.sh`) — hooks restrict usage
+4. Configures passwordless sudo (`apt-get`, `apt`, `dpkg`, `systemctl`, `nft`, `iptables`, `ip6tables`, `ufw`, `firewall-cmd`, `fail2ban-client`, `netfilter-persistent`, `setup.sh`) — hooks restrict usage
 5. Asks for your **Telegram bot token** — [get one from @BotFather](https://t.me/BotFather)
 6. Asks for your **Telegram user ID** — [get it from @userinfobot](https://t.me/userinfobot)
 7. Asks for **Claude authentication** (see below)
@@ -112,20 +112,6 @@ Messages go through three layers. Most never reach the Claude API:
 1. **Settings callbacks** (inline keyboard buttons) — handled directly in the orchestrator
 2. **Commands** (`/status`, `/settings`, `/update`, etc.) — handled in the orchestrator
 3. **Everything else** — sent to Claude as a prompt with conversation context and persistent memory
-
-### Source files
-
-```
-src/index.ts          930  Orchestrator, routing, debounce, cron scheduler, memory extraction, .env loading, system tasks
-src/tools.ts          599  22 MCP tools with cron support (in-process)
-src/store.ts          444  SQLite: messages, schedules, groups, audit, skills, FTS5 search
-src/hooks.ts          343  Security hooks (75 Bash deny patterns, Read, Grep, Glob, Write/Edit)
-channels/telegram.ts  277  Telegram adapter (raw fetch, retry, HTML, replies, settings keyboard)
-src/cron.ts           276  Cron expression parser + @nicknames + cronToHuman
-src/types.ts          217  Type definitions, shared constants, validation
-src/voice.ts          114  Whisper STT + Edge TTS
-src/agent.ts          111  Claude Agent SDK wrapper + streaming + subagents
-```
 
 ---
 
@@ -201,9 +187,9 @@ CakeAgent gives Claude real system access — it installs packages, manages serv
 
 | Layer | What it does |
 |-------|-------------|
-| **OS sandbox** | Dedicated `cakeagent` user (nologin shell), systemd `ProtectSystem=full`, `ProtectHome=true`, `PrivateTmp=true` |
-| **Sudoers** | Passwordless sudo limited to `apt-get`, `apt`, `dpkg`, `systemctl`, and `setup.sh` only |
-| **PreToolUse hooks** | 5 hooks validate every Bash, Read, Grep, Glob, Write, and Edit call before execution. 75 Bash deny patterns cover shell injection, reverse shells, inline execution, destructive ops, secret access, critical system files, firewall mutations, source code writes, Unicode whitespace injection, control characters, IFS manipulation, process substitution, and zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching. |
+| **OS sandbox** | Dedicated `cakeagent` user (nologin shell), systemd `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true` |
+| **Sudoers** | Passwordless sudo limited to `apt-get`, `apt`, `dpkg`, `systemctl`, `nft`, `iptables`, `ip6tables`, `ufw`, `firewall-cmd`, `fail2ban-client`, `netfilter-persistent`, and `setup.sh` only — destructive verbs still blocked by the bash hook |
+| **PreToolUse hooks** | 5 hooks validate every Bash, Read, Grep, Glob, Write, and Edit call before execution. ~90 Bash deny patterns cover shell injection, reverse shells, inline execution, destructive ops, secret access, critical system files, firewall mutations, source code writes, Unicode whitespace injection, control characters, IFS manipulation, process substitution, and zsh dangerous builtins. Commands are normalized (quotes stripped) before pattern matching. |
 | **Agent controls** | `acceptEdits` permission mode, `maxTurns: 25`, sender allowlist, rate limiting |
 | **Runtime checks** | Prompt injection detection, memory/skill content sanitization, startup permission auto-fix (`.env`, `data/`, `.mcp.json`, `credentials/`) |
 
