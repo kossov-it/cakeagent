@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # For interactive install (curl | bash), redirect stdin from tty
-# Skip for non-interactive modes (update, uninstall, install-config, remove-config)
+# Skip for non-interactive modes (update, uninstall, install-config, remove-config, certbot, harden-sshd)
 if [ "${1:-}" != "update" ] && [ "${1:-}" != "uninstall" ] && \
    [ "${1:-}" != "install-config" ] && [ "${1:-}" != "remove-config" ] && \
+   [ "${1:-}" != "certbot" ] && [ "${1:-}" != "harden-sshd" ] && \
    [ ! -t 0 ] && [ -e /dev/tty ]; then
   exec </dev/tty
 fi
@@ -143,6 +144,106 @@ if [ "${1:-}" = "remove-config" ]; then
   exit 0
 fi
 
+# --- certbot: wrap certbot with dangerous flags stripped ---
+# Sudoers already allows `bash setup.sh *`, inheriting root.
+# Hook flags (--pre-hook, --post-hook, --deploy-hook, --renew-hook,
+# --manual-auth-hook, --manual-cleanup-hook) are denied because they exec
+# arbitrary commands as root. Instead, drop scripts into
+# /etc/letsencrypt/renewal-hooks/{pre,deploy,post}/ via install-config —
+# that path is allowlisted and atomically written.
+# Path-redirection flags (--config, --config-dir, --work-dir, --logs-dir)
+# are denied too — they could redirect certbot writes outside /etc/letsencrypt.
+if [ "${1:-}" = "certbot" ]; then
+  shift
+  for arg in "$@"; do
+    case "$arg" in
+      --pre-hook|--post-hook|--deploy-hook|--renew-hook|--manual-auth-hook|--manual-cleanup-hook)
+        echo "Denied: $arg — use /etc/letsencrypt/renewal-hooks/{pre,deploy,post}/ via install-config instead" >&2
+        exit 1
+        ;;
+      --pre-hook=*|--post-hook=*|--deploy-hook=*|--renew-hook=*|--manual-auth-hook=*|--manual-cleanup-hook=*)
+        echo "Denied: ${arg%%=*} — use /etc/letsencrypt/renewal-hooks/{pre,deploy,post}/ via install-config instead" >&2
+        exit 1
+        ;;
+      --config|--config-dir|--work-dir|--logs-dir)
+        echo "Denied: $arg — path redirection not allowed (certbot must use default /etc/letsencrypt layout)" >&2
+        exit 1
+        ;;
+      --config=*|--config-dir=*|--work-dir=*|--logs-dir=*)
+        echo "Denied: ${arg%%=*} — path redirection not allowed" >&2
+        exit 1
+        ;;
+    esac
+  done
+  if ! command -v certbot >/dev/null 2>&1; then
+    echo "certbot not installed — run: sudo apt-get install -y certbot python3-certbot-nginx" >&2
+    exit 1
+  fi
+  exec certbot "$@"
+fi
+
+# --- harden-sshd: install a known-safe hardening drop-in and reload sshd ---
+# Writes /etc/ssh/sshd_config.d/99-cakeagent-hardening.conf with a fixed,
+# vetted ruleset (no user input — no foot-gun), validates the combined
+# config via `sshd -t`, then reloads sshd. On validation failure, the
+# drop-in is reverted to its previous contents (or deleted if new).
+#
+# Rationale: letting the agent write arbitrary sshd_config.d/*.conf would
+# allow directives like Port, ListenAddress, AuthorizedKeysFile,
+# PermitRootLogin, or Match blocks to weaken auth or enable lockout. A
+# fixed-content helper bounds the blast radius while still letting the
+# agent complete a common admin task ("harden SSH") on request.
+if [ "${1:-}" = "harden-sshd" ]; then
+  DROPIN="/etc/ssh/sshd_config.d/99-cakeagent-hardening.conf"
+  BACKUP=""
+  if [ -f "$DROPIN" ]; then
+    BACKUP="$(mktemp "${DROPIN}.bak.XXXXXX")"
+    cp -a "$DROPIN" "$BACKUP"
+  fi
+  mkdir -p /etc/ssh/sshd_config.d
+  TMP="$(mktemp "${DROPIN}.XXXXXX.tmp")"
+  trap 'rm -f "$TMP"; [ -n "$BACKUP" ] && rm -f "$BACKUP"' EXIT
+  cat > "$TMP" <<'HARDENING'
+# Managed by CakeAgent (setup.sh harden-sshd). Do not edit manually.
+# Disables password auth, root login, agent forwarding, and limits auth attempts.
+PermitRootLogin prohibit-password
+PasswordAuthentication no
+PermitEmptyPasswords no
+ChallengeResponseAuthentication no
+KbdInteractiveAuthentication no
+UsePAM yes
+PubkeyAuthentication yes
+MaxAuthTries 3
+LoginGraceTime 30
+ClientAliveInterval 300
+ClientAliveCountMax 2
+AllowAgentForwarding no
+AllowTcpForwarding no
+X11Forwarding no
+PermitTunnel no
+HARDENING
+  chmod 0644 "$TMP"
+  mv "$TMP" "$DROPIN"
+  if ! sshd -t 2>&1; then
+    echo "sshd -t failed after installing $DROPIN — reverting" >&2
+    if [ -n "$BACKUP" ]; then
+      mv "$BACKUP" "$DROPIN"
+      BACKUP=""
+    else
+      rm -f "$DROPIN"
+    fi
+    trap - EXIT
+    exit 1
+  fi
+  [ -n "$BACKUP" ] && rm -f "$BACKUP"
+  trap - EXIT
+  # Reload via systemctl — ssh.service ExecReload runs `sshd -t` first on
+  # Debian/Ubuntu, so a broken reload won't kill the running daemon.
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  echo "Installed $DROPIN and reloaded sshd"
+  exit 0
+fi
+
 # --- Update (pulls code, builds, refreshes service, restarts) ---
 if [ "${1:-}" = "update" ]; then
   echo "🍰 Updating CakeAgent..."
@@ -165,7 +266,7 @@ if [ "${1:-}" = "update" ]; then
     rm -f /etc/sudoers.d/.writetest
     SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
     cat <<SUDOERS > "$SUDOERS_FILE"
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/sbin/ufw, /usr/bin/firewall-cmd, /usr/bin/fail2ban-client, /usr/sbin/netfilter-persistent, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS
@@ -293,7 +394,7 @@ echo "5️⃣  Configuring agent permissions..."
 
 SUDOERS_FILE="/etc/sudoers.d/$SERVICE_NAME"
 cat <<SUDOERS | sudo tee "$SUDOERS_FILE" > /dev/null
-$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/bin/bash $INSTALL_DIR/setup.sh *
+$SERVICE_USER ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt, /usr/bin/dpkg, /usr/bin/systemctl, /usr/sbin/nft, /usr/sbin/iptables, /usr/sbin/ip6tables, /usr/sbin/ufw, /usr/bin/firewall-cmd, /usr/bin/fail2ban-client, /usr/sbin/netfilter-persistent, /usr/bin/bash $INSTALL_DIR/setup.sh *
 Defaults:$SERVICE_USER !requiretty
 Defaults:$SERVICE_USER env_keep += "DEBIAN_FRONTEND"
 SUDOERS

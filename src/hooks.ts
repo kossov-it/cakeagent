@@ -87,8 +87,13 @@ const BASH_DENY = [
   /\/etc\/systemd\/system\/cakeagent/,
 
   // System administration — allow service management, protect critical services
-  /\bsystemctl\b.*\b(sshd|ssh|cakeagent|networking)\b/,
-  /\bsystemctl\b.*\b(stop|disable)\b.*\b(nftables|firewalld|ufw)\b/,
+  // Block all systemctl ops on cakeagent itself (no self-management)
+  /\bsystemctl\b.*\bcakeagent\b/,
+  // Block destructive verbs on ssh/networking — reload/status/show still allowed.
+  // ssh.service ExecReload on Debian/Ubuntu runs `sshd -t` first, so reload is
+  // safe even with a bad drop-in; restart/stop/disable can lock the user out.
+  /\bsystemctl\s+(stop|restart|start|disable|enable|mask|unmask|kill)\s+\S*\b(sshd?|networking)(\.service)?\b/,
+  /\bsystemctl\b.*\b(stop|disable)\b.*\b(nftables|firewalld|ufw|fail2ban)\b/,
   /\bsystemctl\b.*\bmask\b/,             // persistent service disable
   /\breboot\b/,
   /\bshutdown\b/,
@@ -107,6 +112,24 @@ const BASH_DENY = [
   /\biptables\s+-[FXZ]\b/,                      // block flush/delete/zero chains
   /\biptables\s+-P\b.*\bACCEPT\b/,             // block default-accept policy
   /\b(nft|iptables)\b.*\bdport\s+22\b/,        // protect SSH port
+  // ufw — block wipes, disables, default-accept, and SSH port touches
+  /\bufw\s+(--force\s+)?reset\b/,
+  /\bufw\s+disable\b/,
+  /\bufw\s+default\s+allow\b/,
+  /\bufw\s+(allow|deny|limit|reject|delete)\b.*\b22(\/tcp)?\b/,
+  // firewalld — block panic, SSH removal, trusted default zone
+  /\bfirewall-cmd\s+.*--panic-on\b/,
+  /\bfirewall-cmd\s+.*--remove-service=ssh\b/,
+  /\bfirewall-cmd\s+.*--remove-port=22\b/,
+  /\bfirewall-cmd\s+.*--set-default-zone=trusted\b/,
+  // fail2ban — block stop and bulk unban
+  /\bfail2ban-client\s+stop\b/,
+  /\bfail2ban-client\s+unban\s+--all\b/,
+  // netfilter-persistent — block flush (wipes saved rules)
+  /\bnetfilter-persistent\s+flush\b/,
+  // iptables-restore — replaces ruleset wholesale; bypass incremental review
+  /\biptables-restore\b/,
+  /\bip6tables-restore\b/,
 
   // Source code protection — block bash writes to project files
   />\s*\S*\/(src|channels|dist)\//,                      // redirect to source dirs

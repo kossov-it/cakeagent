@@ -17,7 +17,7 @@ src/index.ts        — Orchestrator: poll loop, routing, debounce, cron schedul
 src/agent.ts        — Agent SDK wrapper: query(), session resume, streaming
 src/tools.ts        — In-process MCP server: 22 tools (schedule/skills/MCP/memory/search/audit)
 src/cron.ts         — 5-field cron parser + @nicknames + cronToHuman()
-src/hooks.ts        — Security hooks: 5 PreToolUse matchers (85+ bash deny patterns) + SubagentStart + PreCompact
+src/hooks.ts        — Security hooks: 5 PreToolUse matchers (~90 bash deny patterns) + SubagentStart + PreCompact
 src/store.ts        — SQLite CRUD (messages, schedules, groups, sessions, audit, skills)
 src/voice.ts        — STT (whisper-cli) + TTS (edge-tts)
 src/types.ts        — Shared types + validation constants
@@ -54,10 +54,14 @@ npx tsc --noEmit     # Type-check only
 ## Security
 - Dedicated `cakeagent` system user with nologin shell
 - systemd: `ProtectSystem=strict`, `ProtectHome=true`, `PrivateTmp=true`
-- Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `nft`, `iptables`, `ip6tables`, `bash setup.sh *`
+- Sudoers whitelist: `apt-get`, `apt`, `dpkg`, `systemctl`, `nft`, `iptables`, `ip6tables`, `ufw`, `firewall-cmd`, `fail2ban-client`, `netfilter-persistent`, `bash setup.sh *`
 - systemd `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK` — NETLINK required so sudo-allowed `nft`/`iptables` can speak to the kernel
 - `setup.sh install-config <path>` writes validated config files to `/etc/` (nginx, systemd units, sysctl.d, apt sources.list.d, logrotate.d, nftables.conf, etc.) without giving sudo `tee`/`cp` (sudoers wildcards in args allow path traversal, so `/usr/bin/tee /etc/nginx/*` is unsafe). Critical files (sudoers, shadow, ssh, pam.d, cron.d, ld.so.preload, hosts, resolv.conf, fstab, cakeagent.service) are hard-denied in the helper *and* the bash/Write hooks
-- 5 PreToolUse hooks: Bash (85+ deny patterns + quote-stripped normalization), Read, Grep, Glob, Write/Edit
+- `setup.sh certbot <args>` — wraps certbot, strips hook flags (`--pre-hook`, `--deploy-hook`, etc.) and path-redirection flags (`--config`, `--config-dir`, `--work-dir`, `--logs-dir`) that would allow RCE-as-root via sudoers. Renewal hooks go to `/etc/letsencrypt/renewal-hooks/{pre,deploy,post}/` via install-config instead
+- `setup.sh harden-sshd` — installs a fixed known-safe `/etc/ssh/sshd_config.d/99-cakeagent-hardening.conf` (no user input — prevents foot-gun directives like `Port`/`AuthorizedKeysFile`), validates via `sshd -t`, reverts on failure, reloads sshd. Arbitrary sshd_config writes are never allowed
+- Podman (rootless) is the container runtime, not Docker — the agent never joins the `docker` group (root-equivalent) and never runs a privileged daemon
+- `systemctl reload ssh` is allowed — ssh.service ExecReload runs `sshd -t` before HUP, so a bad drop-in can't kill the daemon. `stop`/`restart`/`disable`/`enable`/`mask` on ssh/sshd/networking are still blocked
+- 5 PreToolUse hooks: Bash (~90 deny patterns + quote-stripped normalization), Read, Grep, Glob, Write/Edit
 - Symlink-aware path checks via `realpathSync` (defeats `/tmp` symlink bypass)
 - SSRF guard on outbound fetch (`install_skill`, registry) — rejects private/loopback/metadata
 - SubagentStart hook logs all subagent launches to audit_log
