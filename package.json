@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.138",
-    "better-sqlite3": "^12.9.0",
+    "better-sqlite3": "^12.10.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {
